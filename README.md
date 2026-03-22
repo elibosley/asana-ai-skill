@@ -58,6 +58,10 @@ If you only want one agent:
 - `scripts/update_skill.py` for self-updating installs
 - `asana-context.example.json` for workspace and team defaults
 
+Recent workflow improvement:
+
+- `project-assigned-tasks` can now optionally enrich assigned-task pulls with section order, task position inside a section, recent comments, and attachments. This makes AI-generated pull lists much more contextual and reduces the need to manually stitch together task history after the initial search.
+
 ## Requirements
 
 - Python `3.10+`

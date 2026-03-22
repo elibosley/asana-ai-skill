@@ -30,18 +30,27 @@ The helper reads the PAT from `ASANA_ACCESS_TOKEN` first, then falls back to the
 4. Use `python3 scripts/asana_api.py ...` for API calls.
 5. When you need to plan work from a single Asana ticket, prefer `task-bundle` first because it pulls task fields, comments, attachments, and project workflow context together in one call.
 6. When you need assigned work inside a project, prefer `project-assigned-tasks` over `project-tasks`. It searches the workspace by project + assignee, includes matching subtasks, and enriches subtasks with parent section context when the subtask itself has no direct project membership.
-7. Do not rely on `project-tasks` alone for "my tasks in project" pulls. Asana project task lists can miss assigned subtasks that still matter for implementation work.
-8. The helper now keeps a local entity cache for workspaces, teams, projects, users, and tags. Commands like `whoami`, `workspaces`, `teams`, `projects`, `users`, `tags`, and `project-assigned-tasks` refresh that cache automatically.
-9. When a command accepts a user identifier such as `--assignee` or follower values, prefer exact gids when you already have them, but cached exact user names and emails now work too.
-10. For writes, inspect the current object first unless the user already provided the exact target GID and desired mutation.
-11. Prefer task/project comments (`stories`) for status notes instead of overwriting task descriptions unless the user asked for that.
-12. Treat section names and section order as raw workflow context. Do not assume a given column means “done” unless the user or surrounding project context says so.
-13. For any AI-authored comment or AI-authored task-note update, begin the message with the heading `AI MESSAGE DISCLAIMER`.
-14. Use rich-text HTML fields for AI-authored updates whenever formatting matters:
+7. When the user wants a pull list, triage doc, or "what should I work on now?" answer from assigned project tasks, use a two-pass workflow:
+   - First run `project-assigned-tasks` with contextual flags so you get section order, section position, recent comments, attachments, and parent context in one payload.
+   - Then run `task-bundle` only for the short list of tasks that actually look like active implementation work.
+   - Do not stop at a raw checklist. Produce a contextual working set that separates:
+     - implemented / QA-only
+     - active code-now
+     - needs repro or screenshots before code
+     - backlog / no-code / workflow cleanup
+8. For triage-style docs, explicitly state whether the document is a raw Asana snapshot or an implementation-ready plan. If it is only a snapshot, say so and add a "current engineering read" section rather than presenting the whole list as one coding scope.
+9. Do not rely on `project-tasks` alone for "my tasks in project" pulls. Asana project task lists can miss assigned subtasks that still matter for implementation work.
+10. The helper now keeps a local entity cache for workspaces, teams, projects, users, and tags. Commands like `whoami`, `workspaces`, `teams`, `projects`, `users`, `tags`, and `project-assigned-tasks` refresh that cache automatically.
+11. When a command accepts a user identifier such as `--assignee` or follower values, prefer exact gids when you already have them, but cached exact user names and emails now work too.
+12. For writes, inspect the current object first unless the user already provided the exact target GID and desired mutation.
+13. Prefer task/project comments (`stories`) for status notes instead of overwriting task descriptions unless the user asked for that.
+14. Treat section names and section order as raw workflow context. Do not assume a given column means “done” unless the user or surrounding project context says so.
+15. For any AI-authored comment or AI-authored task-note update, begin the message with the heading `AI MESSAGE DISCLAIMER`.
+16. Use rich-text HTML fields for AI-authored updates whenever formatting matters:
    - Task comments/stories: `html_text`
    - Task descriptions/notes: `html_notes`
-15. Do not paste Markdown-style bullets or escaped `\n` sequences into plain `text` fields when the message needs headings, lists, or paragraphs. Prefer proper HTML structure.
-16. Before posting or updating an AI-authored message, sanity-check how it will render in Asana: use paragraphs, `<strong>` for labels, and `<ul><li>` for lists rather than relying on Markdown.
+17. Do not paste Markdown-style bullets or escaped `\n` sequences into plain `text` fields when the message needs headings, lists, or paragraphs. Prefer proper HTML structure.
+18. Before posting or updating an AI-authored message, sanity-check how it will render in Asana: use paragraphs, `<strong>` for labels, and `<ul><li>` for lists rather than relying on Markdown.
 
 ## AI Message Format
 
@@ -81,6 +90,7 @@ python3 scripts/asana_api.py workspace-custom-fields
 python3 scripts/asana_api.py projects --team <team_gid>
 python3 scripts/asana_api.py project-tasks <project_gid>
 python3 scripts/asana_api.py project-assigned-tasks <project_gid> --completed false
+python3 scripts/asana_api.py project-assigned-tasks <project_gid> --completed false --include-task-position --include-comments --comment-limit 3 --include-attachments
 python3 scripts/asana_api.py sections <project_gid>
 python3 scripts/asana_api.py board <project_gid>
 python3 scripts/asana_api.py task <task_gid>
@@ -107,6 +117,7 @@ python3 scripts/asana_api.py batch --actions '[{"method":"get","relative_path":"
 - When changing membership-like relationships such as followers, tags, dependencies, or project membership, prefer the dedicated endpoints over full-object replacement.
 - When using the generic `request` subcommand, remember that JSON bodies are wrapped in `{"data": ...}` by default unless `--no-wrap-data` is passed.
 - Use `completed` as the canonical completion flag. Treat column/section names as additional context to report, not as an automatic status mapping.
+- For project pull lists, do not present the raw assigned-task response as the final answer. Interpret the enriched context and tell the user which tasks are already done, which are true code work, and which should be closed or re-scoped first.
 
 ## References
 

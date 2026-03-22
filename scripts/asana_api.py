@@ -585,6 +585,19 @@ def comment_stories_only(stories: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+def recent_comment_stories(
+    stories: list[dict[str, Any]],
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    comments = sorted(
+        comment_stories_only(stories),
+        key=lambda story: parse_iso_timestamp(story.get("created_at")),
+    )
+    if limit is None or limit <= 0:
+        return comments
+    return comments[-limit:]
+
+
 def field_list(csv_fields: str) -> list[str]:
     return [field.strip() for field in csv_fields.split(",") if field.strip()]
 
@@ -709,6 +722,10 @@ def custom_field_setting_opt_fields(default: str | None = None) -> str:
     )
 
 
+def attachment_opt_fields(default: str | None = None) -> str:
+    return default or "gid,name,resource_subtype,download_url,permanent_url,view_url,host,parent_type,parent.name"
+
+
 def task_status_fields(default: str | None = None) -> str:
     return default or (
         "gid,name,completed,completed_at,permalink_url,assignee.name,due_on,due_at,"
@@ -752,6 +769,33 @@ def section_order_map(token: str, project_gid: str) -> tuple[list[dict[str, Any]
         if section_gid:
             order_map[section_gid] = index
     return sections, order_map
+
+
+def section_task_positions_map(
+    token: str,
+    section_gids: list[str],
+) -> dict[str, dict[str, int]]:
+    unique_section_gids: list[str] = []
+    seen: set[str] = set()
+    for section_gid in section_gids:
+        if section_gid and section_gid not in seen:
+            seen.add(section_gid)
+            unique_section_gids.append(section_gid)
+
+    positions_by_section: dict[str, dict[str, int]] = {}
+    for section_gid in unique_section_gids:
+        section_tasks = api_request(
+            token=token,
+            method="GET",
+            path_or_url=f"/sections/{section_gid}/tasks",
+            query={"opt_fields": "gid"},
+        ).get("data", [])
+        positions_by_section[section_gid] = {
+            str(section_task.get("gid")): index
+            for index, section_task in enumerate(section_tasks, start=1)
+            if isinstance(section_task, dict) and section_task.get("gid")
+        }
+    return positions_by_section
 
 
 def command_request(args: argparse.Namespace) -> Any:
@@ -1590,6 +1634,85 @@ def fetch_parent_task_context_map(token: str, parent_gids: list[str]) -> dict[st
     return parent_context_map
 
 
+def fetch_task_activity_context_map(
+    token: str,
+    task_gids: list[str],
+    *,
+    include_comments: bool,
+    comment_limit: int,
+    include_attachments: bool,
+) -> dict[str, dict[str, Any]]:
+    activity_map: dict[str, dict[str, Any]] = {
+        task_gid: {}
+        for task_gid in task_gids
+        if task_gid
+    }
+    if not include_comments and not include_attachments:
+        return activity_map
+
+    actions: list[tuple[str, str, dict[str, Any]]] = []
+    for task_gid in task_gids:
+        if not task_gid:
+            continue
+        if include_comments:
+            actions.append(
+                (
+                    task_gid,
+                    "comments",
+                    {
+                        "method": "get",
+                        "relative_path": f"/tasks/{task_gid}/stories",
+                        "options": {"fields": field_list(story_opt_fields())},
+                    },
+                )
+            )
+        if include_attachments:
+            actions.append(
+                (
+                    task_gid,
+                    "attachments",
+                    {
+                        "method": "get",
+                        "relative_path": f"/tasks/{task_gid}/attachments",
+                        "options": {"fields": field_list(attachment_opt_fields())},
+                    },
+                )
+            )
+
+    max_batch_actions = 10
+    for start in range(0, len(actions), max_batch_actions):
+        chunk = actions[start : start + max_batch_actions]
+        batch_response = batch_actions_request(
+            token,
+            [action for _, _, action in chunk],
+        )
+        for index, (task_gid, kind, _) in enumerate(chunk):
+            body = batch_body_at(batch_response, index).get("data", [])
+            if not isinstance(body, list):
+                continue
+            task_activity = activity_map.setdefault(task_gid, {})
+            if kind == "comments":
+                comments = recent_comment_stories(body, comment_limit)
+                task_activity["recent_comments"] = comments
+                task_activity["comment_count"] = len(comment_stories_only(body))
+                existing_image_urls = task_activity.setdefault("image_urls", [])
+                for comment in comments:
+                    for url in extract_image_urls_from_html(comment.get("html_text")):
+                        if url not in existing_image_urls:
+                            existing_image_urls.append(url)
+            elif kind == "attachments":
+                task_activity["attachments"] = body
+                task_activity["attachment_count"] = len(body)
+                existing_image_urls = task_activity.setdefault("image_urls", [])
+                for attachment in body:
+                    for key in ("download_url", "view_url", "permanent_url"):
+                        value = attachment.get(key) if isinstance(attachment, dict) else None
+                        if isinstance(value, str) and value not in existing_image_urls:
+                            existing_image_urls.append(value)
+
+    return activity_map
+
+
 def command_project_assigned_tasks(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
@@ -1629,6 +1752,38 @@ def command_project_assigned_tasks(args: argparse.Namespace) -> Any:
             if isinstance(task, dict) and isinstance(task.get("parent"), dict) and task["parent"].get("gid")
         ],
     )
+    sections, section_order = section_order_map(token, args.project_gid)
+    activity_context_map = fetch_task_activity_context_map(
+        token,
+        [
+            str(task.get("gid"))
+            for task in tasks
+            if isinstance(task, dict) and task.get("gid")
+        ],
+        include_comments=args.include_comments,
+        comment_limit=args.comment_limit,
+        include_attachments=args.include_attachments,
+    )
+
+    section_positions: dict[str, dict[str, int]] = {}
+    if args.include_task_position:
+        relevant_section_gids: list[str] = []
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+            parent = task.get("parent")
+            parent_gid = parent.get("gid") if isinstance(parent, dict) else None
+            parent_context = parent_context_map.get(str(parent_gid)) if parent_gid else None
+            memberships = task.get("memberships")
+            effective_memberships = memberships if memberships else parent_context.get("memberships", []) if parent_context else []
+            for membership in effective_memberships:
+                if not isinstance(membership, dict):
+                    continue
+                section = membership.get("section") or {}
+                section_gid = section.get("gid")
+                if section_gid:
+                    relevant_section_gids.append(str(section_gid))
+        section_positions = section_task_positions_map(token, relevant_section_gids)
 
     enriched_tasks: list[dict[str, Any]] = []
     for task in tasks:
@@ -1642,11 +1797,35 @@ def command_project_assigned_tasks(args: argparse.Namespace) -> Any:
         parent_context = parent_context_map.get(str(parent_gid)) if parent_gid else None
         memberships = task_payload.get("memberships")
         effective_memberships = memberships if memberships else parent_context.get("memberships", []) if parent_context else []
+        effective_membership_summaries: list[dict[str, Any]] = []
+        task_gid = str(task_payload.get("gid") or "")
+        for membership in effective_memberships:
+            if not isinstance(membership, dict):
+                continue
+            project = membership.get("project") or {}
+            section = membership.get("section") or {}
+            section_gid = str(section.get("gid") or "")
+            effective_membership_summaries.append(
+                {
+                    "project_gid": project.get("gid"),
+                    "project_name": project.get("name"),
+                    "section_gid": section.get("gid"),
+                    "section_name": section.get("name"),
+                    "section_position": section_order.get(section_gid) if section_gid else None,
+                    "task_position_in_section": section_positions.get(section_gid, {}).get(task_gid)
+                    if section_gid
+                    else None,
+                }
+            )
 
         task_payload["is_subtask"] = bool(parent_gid)
         task_payload["effective_memberships"] = effective_memberships
+        task_payload["effective_membership_summaries"] = effective_membership_summaries
         if parent_context:
             task_payload["parent_context"] = parent_context
+        activity_context = activity_context_map.get(task_gid)
+        if activity_context:
+            task_payload.update(activity_context)
 
         enriched_tasks.append(task_payload)
 
@@ -1656,6 +1835,22 @@ def command_project_assigned_tasks(args: argparse.Namespace) -> Any:
     payload["workspace_gid"] = workspace
     payload["assignee"] = assignee
     payload["includes_subtasks"] = True
+    payload["workflow_context"] = {
+        "section_order": [
+            {
+                "gid": section.get("gid"),
+                "name": section.get("name"),
+                "section_position": section_order.get(section.get("gid")),
+            }
+            for section in sections
+        ],
+    }
+    payload["context_includes"] = {
+        "section_order": True,
+        "task_position_in_section": bool(args.include_task_position),
+        "recent_comments": bool(args.include_comments),
+        "attachments": bool(args.include_attachments),
+    }
     payload["subtask_count"] = sum(1 for task in enriched_tasks if isinstance(task, dict) and task.get("is_subtask"))
     assignees = [
         user_cache_record(task["assignee"])
@@ -1956,6 +2151,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     project_assigned_parser.add_argument("--completed", type=parse_bool, help="Filter by completion")
     project_assigned_parser.add_argument("--opt-fields", help="Override result fields")
+    project_assigned_parser.add_argument(
+        "--include-task-position",
+        action="store_true",
+        help="Also look up each task's position inside its effective board section",
+    )
+    project_assigned_parser.add_argument(
+        "--include-comments",
+        action="store_true",
+        help="Include recent comment context for each task",
+    )
+    project_assigned_parser.add_argument(
+        "--comment-limit",
+        type=int,
+        default=3,
+        help="Maximum number of recent comments to keep per task when --include-comments is set",
+    )
+    project_assigned_parser.add_argument(
+        "--include-attachments",
+        action="store_true",
+        help="Include task attachments and derived image URLs for each task",
+    )
     project_assigned_parser.add_argument("--paginate", action="store_true", help="Follow Asana next_page links")
     project_assigned_parser.add_argument("--limit-pages", type=int, default=0, help="Stop pagination after N pages")
     add_common_output_flags(project_assigned_parser)

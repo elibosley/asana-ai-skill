@@ -60,6 +60,7 @@ List tasks or sections inside a project:
 ```bash
 python3 scripts/asana_api.py project-tasks <project_gid> --paginate
 python3 scripts/asana_api.py project-assigned-tasks <project_gid> --completed false
+python3 scripts/asana_api.py project-assigned-tasks <project_gid> --completed false --include-task-position --include-comments --comment-limit 3 --include-attachments
 python3 scripts/asana_api.py sections <project_gid>
 python3 scripts/asana_api.py section-tasks <section_gid>
 python3 scripts/asana_api.py board <project_gid>
@@ -68,11 +69,23 @@ python3 scripts/asana_api.py team-custom-fields --team "Marketing & Communicatio
 ```
 
 Use `project-assigned-tasks` when the question is "what is assigned to me in this project?" because it includes matching subtasks and adds parent task section context for subtasks that do not carry direct project memberships.
+Use the contextual flags when the question is "what should I actually work on now?" so the response includes section order, task position, recent comments, and attachments instead of only a raw checklist.
 Use `project-tasks` when you truly want the board's project task list itself.
 
 Use `board` and `task-status` together when the model needs to reason about workflow state.
 These commands return the exact section names and section ordering from Asana, plus `completed` on the task.
 They do not infer whether a section means “done”.
+
+Recommended triage flow for AI-generated pull docs:
+
+1. Run `project-assigned-tasks` with `--include-task-position --include-comments --comment-limit 3 --include-attachments`.
+2. Split the result into:
+   - implemented / QA only
+   - active code-now
+   - needs repro before code
+   - backlog / workflow cleanup
+3. Run `task-bundle` only for the small set of tasks in `active code-now`.
+4. If you publish a markdown summary, clearly label the raw snapshot versus your contextual working interpretation.
 
 Search tasks in a workspace:
 
