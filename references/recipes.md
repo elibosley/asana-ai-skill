@@ -23,6 +23,7 @@ python3 scripts/asana_api.py show-cache
 ```
 
 These commands also refresh the local cache at `~/.agent-skills/asana/asana-cache.json`, which stores discovered workspaces, teams, projects, users, and tags for later resolution.
+Discovery-style commands such as `whoami`, `workspaces`, `teams`, `users`, `show-context`, `show-cache`, and `inbox-cleanup` may also include a `skill_advertising` block in the JSON output. On first run, it highlights the best commands for the workspace and uses My Tasks size to recommend whether `inbox-cleanup` should be the next step.
 
 List teams in the default workspace:
 
@@ -98,6 +99,24 @@ python3 scripts/asana_api.py search-tasks --text "homepage" --project <project_g
 ```
 
 After `users` has been run at least once, commands that accept assignees or followers can resolve exact cached user names or emails in addition to raw gids and `me`.
+
+Clean up My Tasks intake into review buckets:
+
+```bash
+python3 scripts/asana_api.py inbox-cleanup
+python3 scripts/asana_api.py inbox-cleanup --apply
+python3 scripts/asana_api.py inbox-cleanup --source-section "Recently assigned" --apply
+python3 scripts/asana_api.py inbox-cleanup --all-open --max-tasks 50
+python3 scripts/asana_api.py inbox-cleanup --manager-comments
+python3 scripts/asana_api.py inbox-cleanup --comment-research-todos --apply
+```
+
+Use `inbox-cleanup` when the question is "please sort my My Tasks intake into review states".
+It defaults to the `Recently assigned` section in My Tasks, creates `Review:` sections when missing, moves tasks without completing them, and posts an AI disclaimer comment only for tasks that look likely ready to close.
+It also returns a manager plan per task: work type, suggested next action, a TODO list, and whether the task looks like a good candidate for immediate execution after user confirmation.
+It also returns an `active_ai_action` per task, based on re-reading task comments and linked PR URLs, so the caller can distinguish `ask_to_execute_now`, `ask_to_verify`, `ask_to_follow_up`, `ask_to_close`, and `no_ai_action`.
+Use `--manager-comments` when you want the helper to write AI-authored next-step comments into the tasks, and `--comment-research-todos` when you only want research-style TODO writeups.
+Keep the default scope narrow unless the user explicitly asks for a wider sweep.
 
 ## Write operations
 

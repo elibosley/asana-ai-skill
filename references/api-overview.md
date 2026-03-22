@@ -47,6 +47,7 @@ The helper wraps JSON payloads in `data` automatically unless you pass `--no-wra
 
 - `GET /users/me`
 - `GET /users/me/workspaces`
+- `GET /users/me/user_task_list`
 - `GET /workspaces/{workspace_gid}/teams`
 - `GET /workspaces/{workspace_gid}/users`
 - `GET /workspaces/{workspace_gid}/tags`
@@ -55,6 +56,7 @@ The helper wraps JSON payloads in `data` automatically unless you pass `--no-wra
 
 - `GET /tasks/{task_gid}`
 - `GET /tasks`
+- `GET /user_task_lists/{user_task_list_gid}/tasks`
 - `GET /projects/{project_gid}/tasks`
 - `GET /sections/{section_gid}/tasks`
 - `GET /workspaces/{workspace_gid}/tasks/search`
@@ -85,6 +87,7 @@ The helper wraps JSON payloads in `data` automatically unless you pass `--no-wra
 - `POST /projects/{project_gid}/sections`
 - `GET /sections/{section_gid}`
 - `PUT /sections/{section_gid}`
+- `POST /sections/{section_gid}/addTask`
 
 ### Teams, tags, and custom fields
 

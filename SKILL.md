@@ -10,6 +10,7 @@ description: Use when reading or updating Asana data through the REST API, inclu
 This skill provides a local, reusable Asana API wrapper plus concise references for the common read/write flows in Asana.
 
 Use it when you need to inspect or mutate Asana objects directly from an AI coding agent instead of clicking through the UI.
+On first run, the helper now includes a `skill_advertising` block in discovery-style command output so the agent can see My Tasks size, recommended starting points, and the highest-value commands for this workspace.
 
 ## Default Context
 
@@ -53,6 +54,13 @@ The helper reads the PAT from `ASANA_ACCESS_TOKEN` first, then falls back to the
 18. Before posting or updating an AI-authored message, sanity-check how it will render in Asana: use block-style sections for narrative/status lines, `<strong>` for labels, and `<ul><li>` only for actual lists rather than relying on Markdown.
 19. After any write that creates or updates a task or story, include the returned Asana `review_url` in your user-facing reply so the user can click straight into the updated object. For story writes, also surface `target_review_url` when helpful so the user can review the parent task.
 20. The helper auto-normalizes AI disclaimer messages that arrive as one inline HTML blob or as the older single-list disclaimer format, and it now compacts AI-authored rich text before posting so indentation whitespace does not create phantom empty bullets in Asana.
+21. For My Tasks intake cleanup, prefer `inbox-cleanup` over manual section shuffling. It treats My Tasks as a project, creates `Review:` sections when needed, moves tasks without completing them, and only comments on high-confidence "likely ready to close" items.
+22. `inbox-cleanup` should default to the `Recently assigned` My Tasks section unless the user explicitly asks for a wider sweep such as `--all-open` or extra `--source-section` values.
+23. Use the helper's `skill_advertising` block when present. It summarizes My Tasks size, flags when `Recently assigned` is large enough to justify `inbox-cleanup`, and highlights other useful commands such as `task-bundle`, `project-assigned-tasks`, and `search-tasks`.
+24. `inbox-cleanup` now also emits a lightweight manager plan per task: work type, suggested next action, TODO list, and whether the task looks like a good candidate for immediate execution after asking the user.
+25. When the user wants the cleanup pass to act more like a personal PM, use `--manager-comments` to post AI-authored next-step comments, or `--comment-research-todos` to post only research TODO comments.
+26. Manager-plan comments must stay private-by-default. Do not emit them into tasks that appear shared through project membership or parent-task context; reserve those AI-authored PM comments for tasks that look private to the user's My Tasks.
+27. `inbox-cleanup` should now be treated as an active AI triage pass, not just a section-mover. It re-analyzes task comments, looks for linked PRs/URLs, assigns an `active_ai_action` like `ask_to_execute_now` or `ask_to_verify`, and surfaces which tasks are good candidates for immediate AI help after the user confirms.
 
 ## AI Message Format
 
@@ -103,6 +111,12 @@ python3 scripts/asana_api.py task-status <task_gid>
 python3 scripts/asana_api.py task-stories <task_gid>
 python3 scripts/asana_api.py task-comments <task_gid>
 python3 scripts/asana_api.py task-custom-fields <task_gid>
+python3 scripts/asana_api.py inbox-cleanup
+python3 scripts/asana_api.py inbox-cleanup --apply
+python3 scripts/asana_api.py inbox-cleanup --source-section "Recently assigned" --apply
+python3 scripts/asana_api.py inbox-cleanup --all-open --max-tasks 50
+python3 scripts/asana_api.py inbox-cleanup --manager-comments
+python3 scripts/asana_api.py inbox-cleanup --comment-research-todos --apply
 python3 scripts/asana_api.py create-task --name "Follow up" --project <project_gid>
 python3 scripts/asana_api.py create-task --name "Follow up" --project <project_gid> --assignee "Eli Bosley"
 python3 scripts/asana_api.py update-task <task_gid> --completed true --assignee "eli@example.com"

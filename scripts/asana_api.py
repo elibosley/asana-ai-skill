@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import fcntl
+import html
 import json
 import mimetypes
 import os
@@ -41,6 +42,15 @@ LEGACY_CONTEXT_FILE = SKILL_DIR / "asana-context.json"
 DEFAULT_CACHE_FILE = LOCAL_STATE_DIR / "asana-cache.json"
 LEGACY_SHARED_CACHE_FILE = LEGACY_LOCAL_STATE_DIR / "asana-cache.json"
 LEGACY_CACHE_FILE = SKILL_DIR / ".cache" / "asana-cache.json"
+
+INBOX_CLEANUP_REVIEW_SECTIONS = {
+    "ready_to_close": "Review: Likely Ready To Close",
+    "needs_verification": "Review: Needs Verification",
+    "waiting_on_others": "Review: Waiting On Others",
+    "needs_next_action": "Review: Needs Next Action",
+    "backlog_cleanup": "Review: Backlog Cleanup",
+}
+DEFAULT_INBOX_CLEANUP_SOURCE_SECTIONS = ("Recently assigned",)
 
 
 def token_file() -> Path:
@@ -109,6 +119,17 @@ def ensure_cache_shape(cache: dict[str, Any]) -> dict[str, Any]:
     return cache
 
 
+def merge_nested_dicts(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in incoming.items():
+        existing = merged.get(key)
+        if isinstance(existing, dict) and isinstance(value, dict):
+            merged[key] = merge_nested_dicts(existing, value)
+        elif value is not None:
+            merged[key] = value
+    return merged
+
+
 def load_cache() -> dict[str, Any]:
     file_path = cache_file()
     if not file_path.exists():
@@ -118,6 +139,14 @@ def load_cache() -> dict[str, Any]:
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def metadata_bucket(cache: dict[str, Any], key: str) -> dict[str, Any]:
+    metadata = ensure_cache_shape(cache).setdefault("metadata", {})
+    bucket = metadata.setdefault(key, {})
+    if not isinstance(bucket, dict):
+        metadata[key] = {}
+    return metadata[key]
 
 
 def parse_iso_timestamp(value: str | None) -> datetime:
@@ -169,9 +198,7 @@ def merge_cache_data(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str
 
     merged_metadata = merged.setdefault("metadata", {})
     incoming_metadata = incoming_normalized.get("metadata", {})
-    for key in ("current_user_gid", "current_user_name"):
-        if incoming_metadata.get(key) is not None:
-            merged_metadata[key] = incoming_metadata[key]
+    merged["metadata"] = merge_nested_dicts(merged_metadata, incoming_metadata)
     return merged
 
 
@@ -805,6 +832,781 @@ def comment_stories_only(stories: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+def strip_html_to_text(value: str | None) -> str:
+    if not value:
+        return ""
+    text = re.sub(r"<br\s*/?>", "\n", value, flags=re.IGNORECASE)
+    text = re.sub(r"</(li|blockquote|div|p|ul|ol|body)>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<li\b[^>]*>", "- ", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html.unescape(text)
+    return re.sub(r"\n{2,}", "\n", text).strip()
+
+
+def chunked(items: list[Any], size: int) -> list[list[Any]]:
+    if size <= 0:
+        return [items[:]]
+    return [items[index : index + size] for index in range(0, len(items), size)]
+
+
+def user_task_list_opt_fields(default: str | None = None) -> str:
+    return default or (
+        "gid,name,completed,created_at,modified_at,due_on,due_at,permalink_url,"
+        "resource_subtype,parent.gid,parent.name,projects.gid,projects.name,"
+        "memberships.project.gid,memberships.project.name,memberships.section.gid,"
+        "memberships.section.name,assignee_status,assignee_section.gid,assignee_section.name"
+    )
+
+
+def my_tasks_task_detail_fields(default: str | None = None) -> str:
+    return default or (
+        "gid,name,notes,html_notes,resource_subtype,completed,completed_at,created_at,"
+        "modified_at,due_on,due_at,permalink_url,parent.gid,parent.name,"
+        "assignee_status,assignee_section.gid,assignee_section.name,"
+        "projects.gid,projects.name,memberships.project.gid,memberships.project.name,"
+        "memberships.section.gid,memberships.section.name,custom_fields.gid,"
+        "custom_fields.name,custom_fields.resource_subtype,custom_fields.display_value,"
+        "custom_fields.enum_value.name"
+    )
+
+
+def my_tasks_project(token: str, workspace_gid: str) -> dict[str, Any]:
+    response = api_request(
+        token=token,
+        method="GET",
+        path_or_url="/users/me/user_task_list",
+        query={
+            "workspace": workspace_gid,
+            "opt_fields": "gid,name,owner.gid,owner.name,workspace.gid,workspace.name",
+        },
+    )
+    return response.get("data", {})
+
+
+def my_tasks_sections(token: str, user_task_list_gid: str) -> list[dict[str, Any]]:
+    response = api_request(
+        token=token,
+        method="GET",
+        path_or_url=f"/projects/{user_task_list_gid}/sections",
+        query={"opt_fields": section_opt_fields()},
+    )
+    return response.get("data", [])
+
+
+def my_tasks_tasks(
+    token: str,
+    user_task_list_gid: str,
+    *,
+    paginate: bool,
+    limit_pages: int,
+) -> list[dict[str, Any]]:
+    response = api_request(
+        token=token,
+        method="GET",
+        path_or_url=f"/user_task_lists/{user_task_list_gid}/tasks",
+        query={
+            "completed_since": "now",
+            "limit": "100",
+            "opt_fields": user_task_list_opt_fields(),
+        },
+    )
+    response = maybe_paginate(token, response, paginate, limit_pages)
+    data = response.get("data", [])
+    return data if isinstance(data, list) else []
+
+
+def fetch_task_review_context(
+    token: str,
+    task_gids: list[str],
+) -> dict[str, dict[str, Any]]:
+    context_by_gid: dict[str, dict[str, Any]] = {}
+    for gid_chunk in chunked(task_gids, 5):
+        if not gid_chunk:
+            continue
+        actions: list[dict[str, Any]] = []
+        for task_gid in gid_chunk:
+            actions.append(
+                {
+                    "method": "get",
+                    "relative_path": f"/tasks/{task_gid}",
+                    "options": {"fields": field_list(my_tasks_task_detail_fields())},
+                }
+            )
+            actions.append(
+                {
+                    "method": "get",
+                    "relative_path": f"/tasks/{task_gid}/stories",
+                    "options": {"fields": field_list(story_opt_fields())},
+                }
+            )
+        batch_response = batch_actions_request(token, actions)
+        for index, task_gid in enumerate(gid_chunk):
+            task_body = batch_body_at(batch_response, index * 2).get("data", {})
+            story_body = batch_body_at(batch_response, index * 2 + 1).get("data", [])
+            context_by_gid[task_gid] = {
+                "task": task_body if isinstance(task_body, dict) else {},
+                "stories": story_body if isinstance(story_body, list) else [],
+            }
+    return context_by_gid
+
+
+def task_membership_labels(task: dict[str, Any]) -> list[str]:
+    labels: list[str] = []
+    for membership in task.get("memberships", []) or []:
+        if not isinstance(membership, dict):
+            continue
+        project = membership.get("project") or {}
+        section = membership.get("section") or {}
+        project_name = project.get("name") or "No project"
+        section_name = section.get("name") or "No section"
+        labels.append(f"{project_name} :: {section_name}")
+    return labels
+
+
+def task_project_names(task: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+    for project in task.get("projects", []) or []:
+        if isinstance(project, dict) and project.get("name"):
+            names.append(str(project["name"]))
+    return names
+
+
+def task_is_shared_for_manager_comments(task: dict[str, Any]) -> tuple[bool, str | None]:
+    project_names = task_project_names(task)
+    membership_labels = task_membership_labels(task)
+    parent = task.get("parent") or {}
+    if project_names or membership_labels:
+        return True, "Task belongs to a project/section that is likely shared with others."
+    if isinstance(parent, dict) and parent.get("gid"):
+        return True, "Task is a subtask/child task and may be visible in shared parent context."
+    return False, None
+
+
+def story_text(story: dict[str, Any]) -> str:
+    return strip_html_to_text(story.get("html_text") or story.get("text"))
+
+
+def recent_comments(task_context: dict[str, Any], limit: int = 3) -> list[dict[str, Any]]:
+    comments = comment_stories_only(task_context.get("stories", []))
+    comments.sort(key=lambda story: parse_iso_timestamp(story.get("created_at")), reverse=True)
+    return comments[:limit]
+
+
+def short_date(value: str | None) -> str | None:
+    token = str(value or "").strip()
+    if not token:
+        return None
+    return token.split("T", 1)[0]
+
+
+def inbox_cleanup_comment_html(
+    *,
+    category_label: str,
+    evidence_lines: list[str],
+) -> str:
+    sections: list[tuple[str | None, str, str | list[str]]] = [
+        (
+            None,
+            "scalar",
+            "This message was generated by AI to summarize My Tasks cleanup review state.",
+        ),
+        ("<strong>Review state:</strong>", "scalar", category_label),
+        ("<strong>Why this looks done:</strong>", "list", evidence_lines),
+        (
+            "<strong>Requested action:</strong>",
+            "scalar",
+            "Please verify and mark complete if this matches reality.",
+        ),
+    ]
+    return render_ai_message_sections(sections) or ""
+
+
+def manager_plan_comment_html(
+    *,
+    category_label: str,
+    work_type: str,
+    next_action: str,
+    todo_label: str,
+    todo_items: list[str],
+    execution_prompt: str | None,
+) -> str:
+    sections: list[tuple[str | None, str, str | list[str]]] = [
+        (
+            None,
+            "scalar",
+            "This message was generated by AI to propose a personal project-manager next step for this task.",
+        ),
+        ("<strong>Review state:</strong>", "scalar", category_label),
+        ("<strong>Work type:</strong>", "scalar", work_type),
+        ("<strong>Suggested next action:</strong>", "scalar", next_action),
+        (f"<strong>{html.escape(todo_label)}:</strong>", "list", todo_items),
+    ]
+    if execution_prompt:
+        sections.append(("<strong>Execution option:</strong>", "scalar", execution_prompt))
+    return render_ai_message_sections(sections) or ""
+
+
+def comment_already_mentions_inbox_cleanup(stories: list[dict[str, Any]], category_label: str) -> bool:
+    category_token = category_label.casefold()
+    for story in comment_stories_only(stories):
+        text = story_text(story).casefold()
+        if "my tasks cleanup review state" in text and category_token in text:
+            return True
+    return False
+
+
+def comment_already_mentions_manager_plan(stories: list[dict[str, Any]], category_label: str) -> bool:
+    category_token = category_label.casefold()
+    for story in comment_stories_only(stories):
+        text = story_text(story).casefold()
+        if "personal project-manager next step" in text and category_token in text:
+            return True
+    return False
+
+
+def looks_like_person_name_only(name: str) -> bool:
+    token = re.sub(r"\s+", " ", str(name or "").strip())
+    if not token:
+        return False
+    if re.search(r"[:/@#\-\(\)\[\]\d]", token):
+        return False
+    parts = token.split(" ")
+    if not 1 < len(parts) <= 3:
+        return False
+    return all(part[:1].isupper() and part[1:].islower() for part in parts if part)
+
+
+def infer_task_work_type(combined_text: str, name: str) -> str:
+    if looks_like_person_name_only(name):
+        return "admin"
+    if re.search(r"\b(research|investigate|audit|analyze|analysis|r&d|information gathering|review|discuss|spec|plan)\b", combined_text):
+        return "research"
+    if re.search(r"\b(meeting|follow up|follow-up|email|coordinate|contact|waiting|partner|vendor|ops dashboard|details needed)\b", combined_text):
+        return "coordination"
+    if re.search(r"\b(bug|broken|issue|error|not working|regression|fix)\b", combined_text):
+        return "bug"
+    if re.search(r"\b(build|implement|create|add|remove|update|move|streamline|deploy|release|ship|endpoint|automation|hookup)\b", combined_text):
+        return "implementation"
+    if re.search(r"\b(check in|check-in|birthday|shopping|travel|comp time|p&l|scope of work)\b", combined_text) or "eli -" in name.casefold():
+        return "admin"
+    return "implementation"
+
+
+def has_substantive_manager_context(
+    *,
+    task: dict[str, Any],
+    recent_comment_lines: list[str],
+) -> bool:
+    notes = strip_html_to_text(task.get("html_notes") or task.get("notes"))
+    if len(notes) >= 80:
+        return True
+    if any(len(line) >= 80 for line in recent_comment_lines):
+        return True
+    if task.get("due_on") and (notes or recent_comment_lines):
+        return True
+    return False
+
+
+def extract_urls(text: str) -> list[str]:
+    return re.findall(r"https?://[^\s<>\"]+", text)
+
+
+def extract_github_pr_links(text: str) -> list[dict[str, str]]:
+    links: list[dict[str, str]] = []
+    pattern = re.compile(r"https://github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
+    for match in pattern.finditer(text):
+        owner, repo, pr_number = match.groups()
+        links.append(
+            {
+                "url": match.group(0),
+                "owner": owner,
+                "repo": repo,
+                "pr_number": pr_number,
+            }
+        )
+    return links
+
+
+def active_ai_action_for_task(
+    *,
+    category_key: str,
+    work_type: str,
+    ready_signal: bool,
+    verify_signal: bool,
+    waiting_signal: bool,
+    negative_signal: bool,
+    linked_prs: list[dict[str, str]],
+    manager_comment_allowed: bool,
+) -> dict[str, Any]:
+    if ready_signal and category_key == "ready_to_close":
+        return {
+            "action": "ask_to_close",
+            "reason": "Recent comments indicate this is likely fixed and ready for manual close-out.",
+        }
+    if linked_prs and work_type in {"implementation", "bug", "research"}:
+        return {
+            "action": "ask_to_execute_now",
+            "reason": "This task references a PR/code path and looks like a good candidate for immediate AI execution after confirmation.",
+        }
+    if verify_signal and not negative_signal:
+        return {
+            "action": "ask_to_verify",
+            "reason": "This looks like verification/QA follow-up rather than net-new work.",
+        }
+    if waiting_signal:
+        return {
+            "action": "ask_to_follow_up",
+            "reason": "This looks blocked on another person or team and needs a targeted follow-up.",
+        }
+    if manager_comment_allowed and work_type in {"research", "implementation", "bug"}:
+        return {
+            "action": "ask_to_execute_now",
+            "reason": "This looks actionable and private enough for the AI to try solving after asking.",
+        }
+    return {
+        "action": "no_ai_action",
+        "reason": "No immediate AI action is recommended from current task context.",
+    }
+
+
+def infer_execution_candidate(
+    *,
+    category_key: str,
+    work_type: str,
+    combined_text: str,
+) -> tuple[bool, str | None]:
+    if category_key in {"waiting_on_others", "backlog_cleanup"}:
+        return False, None
+    if work_type in {"implementation", "bug", "research"} and re.search(
+        r"\b(pr\b|github|preview|branch|webgui|api|plugin|repo|account app|automation|endpoint|beta|test)\b",
+        combined_text,
+    ):
+        return True, "Ask whether I should investigate or execute this task now, and I can try to solve it end-to-end."
+    return False, None
+
+
+def manager_plan_for_task(
+    *,
+    work_type: str,
+    category_key: str,
+    task: dict[str, Any],
+    combined_text: str,
+    reasons: list[str],
+    recent_comment_lines: list[str],
+) -> dict[str, Any]:
+    name = str(task.get("name") or "")
+    due_on = task.get("due_on")
+    todo_label = "Suggested TODO"
+    next_action = "Review the task and decide the concrete next owner/action."
+    todo_items: list[str] = []
+
+    if work_type == "research":
+        todo_label = "Research TODO"
+        next_action = "Turn this from an open-ended research item into a short written recommendation with a clear owner and follow-up."
+        todo_items = [
+            "Read the task description, linked docs, PRs, and the latest comments.",
+            "Write a 3-5 bullet summary of the current state and what is still unknown.",
+            "List the specific decision this research should unblock.",
+            "Recommend one next action, one owner, and one target date.",
+        ]
+        if re.search(r"\b(spreadsheet|sheet|docs.google.com|document|spec)\b", combined_text):
+            todo_items.insert(1, "Review the linked document/spreadsheet and capture the key takeaways in the task.")
+    elif work_type == "bug":
+        todo_label = "Bug TODO"
+        next_action = "Confirm whether this is still reproducible, then either close it as fixed or create the smallest remaining implementation step."
+        todo_items = [
+            "Collect the latest repro details, version, and any screenshots or logs.",
+            "Verify whether the issue still reproduces on the latest relevant build.",
+            "If fixed, comment with evidence and ask for close-out.",
+            "If not fixed, define the smallest next engineering step and owner.",
+        ]
+    elif work_type == "implementation":
+        todo_label = "Implementation TODO"
+        next_action = "Reduce this to one concrete shipping step instead of leaving it as a broad open task."
+        todo_items = [
+            "Confirm the exact deliverable for this task.",
+            "Link the active PR, branch, or code area if one exists.",
+            "Define the next testable milestone.",
+            "Move it to verification once that milestone is shipped.",
+        ]
+    elif work_type == "coordination":
+        todo_label = "Coordination TODO"
+        next_action = "Push the external dependency forward with one specific follow-up."
+        todo_items = [
+            "Identify the external person or team currently blocking progress.",
+            "Post a follow-up comment or send a ping with the concrete ask.",
+            "Record the expected reply date or handoff date in the task.",
+            "Move back to execution once the dependency clears.",
+        ]
+    else:
+        todo_label = "Admin TODO"
+        next_action = "Either schedule the work or move it out of active My Tasks if it is not actionable this cycle."
+        todo_items = [
+            "Decide whether this belongs in active My Tasks right now.",
+            "If yes, assign a date or next checkpoint.",
+            "If no, move it to backlog or an appropriate holding section.",
+        ]
+
+    if due_on:
+        todo_items.append(f"Check whether the due date `{due_on}` still makes sense.")
+    if reasons:
+        todo_items.append(f"Use this context when updating the task: {reasons[0]}")
+    if recent_comment_lines:
+        todo_items.append("Incorporate the latest comment context before changing scope or status.")
+
+    execution_candidate, execution_prompt = infer_execution_candidate(
+        category_key=category_key,
+        work_type=work_type,
+        combined_text=combined_text,
+    )
+
+    return {
+        "work_type": work_type,
+        "next_action": next_action,
+        "todo_label": todo_label,
+        "todo_items": todo_items[:6],
+        "execution_candidate": execution_candidate,
+        "execution_prompt": execution_prompt,
+    }
+
+
+def classify_inbox_cleanup_task(task_context: dict[str, Any], now: datetime) -> dict[str, Any]:
+    task = task_context.get("task", {})
+    stories = task_context.get("stories", [])
+    name = str(task.get("name") or "")
+    notes = strip_html_to_text(task.get("html_notes") or task.get("notes"))
+    membership_labels = task_membership_labels(task)
+    project_names = task_project_names(task)
+    current_my_tasks_section = ((task.get("assignee_section") or {}).get("name") or "").strip()
+    recent = recent_comments(task_context, limit=3)
+    recent_comment_lines = [
+        f"{comment.get('created_by', {}).get('name') or 'Unknown'} on {short_date(comment.get('created_at'))}: {story_text(comment)}"
+        for comment in recent
+        if story_text(comment)
+    ]
+
+    combined_text = " ".join(
+        [
+            name,
+            notes,
+            " ".join(membership_labels),
+            " ".join(project_names),
+            " ".join(recent_comment_lines),
+        ]
+    ).casefold()
+    modified_at = parse_iso_timestamp(task.get("modified_at"))
+    created_at = parse_iso_timestamp(task.get("created_at"))
+    stale_days = max(0, int((now - modified_at).total_seconds() // 86400))
+    age_days = max(0, int((now - created_at).total_seconds() // 86400))
+    linked_prs = extract_github_pr_links(combined_text)
+    linked_urls = extract_urls(combined_text)
+
+    ready_signal = bool(
+        re.search(
+            r"\b(confirmed fixed|confirmed both working|fully resolved|most likely fully resolved|working for beta|works on|working for|shows correctly|looks ok to me|looks done|shipped)\b",
+            combined_text,
+        )
+    )
+    verify_signal = bool(
+        re.search(
+            r"\b(pr\b|preview|staging|test|beta|rc|should be out now|should be fixed|please test|confirmed)\b",
+            combined_text,
+        )
+    )
+    waiting_signal = bool(
+        re.search(
+            r"\b(blocked|waiting|emailed|email|cc'd|contact|confirm with|needs info|details needed|partner|vendor|external)\b",
+            combined_text,
+        )
+    ) or "[blocked]" in name.casefold()
+    negative_signal = bool(
+        re.search(
+            r"\b(still happening|still broken|not working|another fix|needs another fix|difficult to be 100% confident)\b",
+            combined_text,
+        )
+    )
+    backlog_signal = stale_days >= 30 or bool(
+        re.search(r"\b(backlog|nice to have|initiatives|feature backlog)\b", combined_text)
+    )
+    done_like_signal = bool(
+        re.search(r"\b(production|done|qa|completed|staging|test)\b", " ".join(membership_labels).casefold())
+    )
+
+    reasons: list[str] = []
+    if membership_labels:
+        reasons.append(f"Project state: {membership_labels[0]}")
+    if task.get("due_on"):
+        reasons.append(f"Due date: {task['due_on']}")
+    reasons.append(f"Last updated {stale_days} day(s) ago")
+    if recent_comment_lines:
+        reasons.extend(recent_comment_lines[:2])
+
+    work_type = infer_task_work_type(combined_text, name)
+    shared_for_manager_comments, shared_reason = task_is_shared_for_manager_comments(task)
+    substantive_manager_context = has_substantive_manager_context(
+        task=task,
+        recent_comment_lines=recent_comment_lines,
+    )
+
+    category_key = "needs_next_action"
+    if ready_signal and done_like_signal and not negative_signal:
+        category_key = "ready_to_close"
+    elif verify_signal and not negative_signal:
+        category_key = "needs_verification"
+    elif waiting_signal:
+        category_key = "waiting_on_others"
+    elif backlog_signal and stale_days >= 14:
+        category_key = "backlog_cleanup"
+
+    # Fresh tasks with little context should stay in the action bucket instead of backlog.
+    if category_key == "backlog_cleanup" and age_days < 14:
+        category_key = "needs_next_action"
+
+    manager_plan = manager_plan_for_task(
+        work_type=work_type,
+        category_key=category_key,
+        task=task,
+        combined_text=combined_text,
+        reasons=reasons,
+        recent_comment_lines=recent_comment_lines,
+    )
+    manager_comment_allowed = (
+        not shared_for_manager_comments
+        and bool(substantive_manager_context)
+        and work_type != "admin"
+    )
+    active_ai_action = active_ai_action_for_task(
+        category_key=category_key,
+        work_type=work_type,
+        ready_signal=ready_signal,
+        verify_signal=verify_signal,
+        waiting_signal=waiting_signal,
+        negative_signal=negative_signal,
+        linked_prs=linked_prs,
+        manager_comment_allowed=manager_comment_allowed,
+    )
+
+    return {
+        "category_key": category_key,
+        "category_label": INBOX_CLEANUP_REVIEW_SECTIONS[category_key],
+        "current_my_tasks_section": current_my_tasks_section,
+        "reasons": reasons,
+        "stale_days": stale_days,
+        "age_days": age_days,
+        "work_type": work_type,
+        "manager_plan": manager_plan,
+        "shared_for_manager_comments": shared_for_manager_comments,
+        "shared_for_manager_comments_reason": shared_reason,
+        "substantive_manager_context": substantive_manager_context,
+        "manager_comment_allowed": manager_comment_allowed,
+        "linked_prs": linked_prs,
+        "linked_urls": linked_urls[:10],
+        "active_ai_action": active_ai_action,
+    }
+
+
+def ensure_review_sections(
+    token: str,
+    *,
+    user_task_list_gid: str,
+    existing_sections: list[dict[str, Any]],
+    apply: bool,
+) -> dict[str, dict[str, Any]]:
+    sections_by_name: dict[str, dict[str, Any]] = {
+        str(section.get("name")): dict(section)
+        for section in existing_sections
+        if isinstance(section, dict) and section.get("name")
+    }
+    for section_name in INBOX_CLEANUP_REVIEW_SECTIONS.values():
+        if section_name in sections_by_name or not apply:
+            continue
+        created = api_request(
+            token=token,
+            method="POST",
+            path_or_url=f"/projects/{user_task_list_gid}/sections",
+            json_body={"data": {"name": section_name}},
+        ).get("data", {})
+        if isinstance(created, dict) and created.get("name"):
+            sections_by_name[str(created["name"])] = created
+    return sections_by_name
+
+
+def infer_workspace_gid_from_payload(payload: dict[str, Any], cache: dict[str, Any]) -> str | None:
+    data = payload.get("data")
+    if isinstance(data, dict):
+        workspace = data.get("workspace")
+        if isinstance(workspace, dict) and workspace.get("gid"):
+            return str(workspace["gid"])
+        workspaces = data.get("workspaces")
+        if isinstance(workspaces, list) and workspaces:
+            first = workspaces[0]
+            if isinstance(first, dict) and first.get("gid"):
+                return str(first["gid"])
+    workspaces = cache_bucket(cache, "workspaces").get("by_gid", {})
+    if len(workspaces) == 1:
+        return next(iter(workspaces.keys()))
+    return None
+
+
+def my_tasks_summary(
+    token: str,
+    *,
+    workspace_gid: str,
+    cache: dict[str, Any],
+    refresh: bool = False,
+    max_age_hours: int = 6,
+) -> dict[str, Any]:
+    summaries = metadata_bucket(cache, "my_tasks_summary_by_workspace")
+    existing = summaries.get(workspace_gid)
+    if isinstance(existing, dict) and not refresh:
+        captured_at = parse_iso_timestamp(existing.get("captured_at"))
+        age_seconds = (datetime.now(timezone.utc) - captured_at).total_seconds()
+        if age_seconds <= max_age_hours * 3600:
+            return existing
+
+    user_task_list = my_tasks_project(token, workspace_gid)
+    user_task_list_gid = str(user_task_list.get("gid") or "").strip()
+    tasks = my_tasks_tasks(token, user_task_list_gid, paginate=True, limit_pages=0) if user_task_list_gid else []
+    section_counts: dict[str, int] = {}
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        section_name = str(((task.get("assignee_section") or {}).get("name")) or "Unsectioned")
+        section_counts[section_name] = section_counts.get(section_name, 0) + 1
+
+    summary = {
+        "captured_at": now_iso(),
+        "user_task_list_gid": user_task_list_gid,
+        "user_task_list_name": user_task_list.get("name"),
+        "open_task_count": len(tasks),
+        "recently_assigned_count": section_counts.get("Recently assigned", 0),
+        "review_task_count": sum(
+            count
+            for section_name, count in section_counts.items()
+            if section_name in INBOX_CLEANUP_REVIEW_SECTIONS.values()
+        ),
+        "section_counts": section_counts,
+    }
+    summaries[workspace_gid] = summary
+    save_cache(cache)
+    return summary
+
+
+def advertising_message_for_my_tasks(summary: dict[str, Any]) -> dict[str, Any]:
+    open_count = int(summary.get("open_task_count") or 0)
+    recently_assigned = int(summary.get("recently_assigned_count") or 0)
+    review_count = int(summary.get("review_task_count") or 0)
+
+    recommendation = {
+        "priority": "low",
+        "message": "My Tasks looks manageable. Use inbox cleanup when you want review buckets.",
+        "command": "python3 scripts/asana_api.py inbox-cleanup",
+    }
+    if recently_assigned >= 50:
+        recommendation = {
+            "priority": "high",
+            "message": f"My Tasks intake is large: {recently_assigned} tasks in Recently assigned and {open_count} open overall.",
+            "command": "python3 scripts/asana_api.py inbox-cleanup --apply",
+        }
+    elif recently_assigned >= 15:
+        recommendation = {
+            "priority": "medium",
+            "message": f"My Tasks intake is building up: {recently_assigned} tasks in Recently assigned.",
+            "command": "python3 scripts/asana_api.py inbox-cleanup --apply",
+        }
+    elif review_count > 0:
+        recommendation = {
+            "priority": "low",
+            "message": f"My Tasks already has {review_count} tasks in Review sections.",
+            "command": "python3 scripts/asana_api.py inbox-cleanup --all-open",
+        }
+    return recommendation
+
+
+def skill_feature_highlights() -> list[dict[str, str]]:
+    return [
+        {
+            "command": "python3 scripts/asana_api.py inbox-cleanup --apply",
+            "use_when": "Sort My Tasks into review states without completing tasks.",
+        },
+        {
+            "command": "python3 scripts/asana_api.py inbox-cleanup --manager-comments",
+            "use_when": "Have the cleanup pass act more like a personal PM by drafting next-step comments.",
+        },
+        {
+            "command": "python3 scripts/asana_api.py task-bundle <task_gid> --project-gid <project_gid>",
+            "use_when": "Pull one task with notes, comments, attachments, and project workflow context.",
+        },
+        {
+            "command": "python3 scripts/asana_api.py project-assigned-tasks <project_gid> --completed false --include-task-position --include-comments --comment-limit 3 --include-attachments",
+            "use_when": "Get your actual assigned work in one project with triage context.",
+        },
+        {
+            "command": "python3 scripts/asana_api.py search-tasks --text \"<query>\" --assignee me",
+            "use_when": "Find tasks quickly across the workspace without clicking around.",
+        },
+    ]
+
+
+def attach_skill_advertising(
+    *,
+    args: argparse.Namespace,
+    payload: Any,
+    token: str | None = None,
+    workspace_gid: str | None = None,
+    cache: dict[str, Any] | None = None,
+    include_first_run: bool = True,
+    refresh_summary: bool = False,
+) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+
+    cache = cache or load_cache()
+    metadata = ensure_cache_shape(cache).setdefault("metadata", {})
+    current_user_gid = str(metadata.get("current_user_gid") or "").strip()
+    if not current_user_gid:
+        current_user_gid = str((((payload.get("data") or {}) if isinstance(payload.get("data"), dict) else {}).get("gid")) or "").strip()
+
+    resolved_workspace_gid = workspace_gid or infer_workspace_gid_from_payload(payload, cache)
+    my_tasks_info = None
+    recommendation = None
+    if token and resolved_workspace_gid:
+        my_tasks_info = my_tasks_summary(
+            token,
+            workspace_gid=resolved_workspace_gid,
+            cache=cache,
+            refresh=refresh_summary,
+        )
+        recommendation = advertising_message_for_my_tasks(my_tasks_info)
+
+    onboarding_bucket = metadata_bucket(cache, "feature_onboarding")
+    onboarding_key = f"{current_user_gid}:{resolved_workspace_gid or 'unknown'}"
+    first_run = include_first_run and current_user_gid and onboarding_key not in onboarding_bucket
+
+    advertising: dict[str, Any] = {
+        "my_tasks": my_tasks_info,
+        "recommended_next_step": recommendation,
+    }
+    if first_run:
+        advertising["first_run"] = True
+        advertising["message"] = (
+            "This Asana integration can triage My Tasks, inspect single tickets with full context, "
+            "and pull your assigned work inside projects."
+        )
+        advertising["feature_highlights"] = skill_feature_highlights()
+        onboarding_bucket[onboarding_key] = {
+            "shown_at": now_iso(),
+            "command": getattr(args, "command", None),
+        }
+        save_cache(cache)
+    else:
+        advertising["first_run"] = False
+
+    enriched = dict(payload)
+    enriched["skill_advertising"] = advertising
+    return enriched
+
+
 def recent_comment_stories(
     stories: list[dict[str, Any]],
     limit: int | None = None,
@@ -1078,8 +1880,15 @@ def command_whoami(args: argparse.Namespace) -> Any:
         cache["metadata"]["current_user_gid"] = user.get("gid")
         cache["metadata"]["current_user_name"] = user.get("name")
         save_cache(cache)
-    print_json(response, args.compact)
-    return response
+    enriched = attach_skill_advertising(
+        args=args,
+        payload=response,
+        token=token,
+        cache=cache,
+        refresh_summary=True,
+    )
+    print_json(enriched, args.compact)
+    return enriched
 
 
 def command_workspaces(args: argparse.Namespace) -> Any:
@@ -1094,8 +1903,14 @@ def command_workspaces(args: argparse.Namespace) -> Any:
     if isinstance(workspaces, list):
         cache_records(cache, "workspaces", [workspace_cache_record(item) for item in workspaces if isinstance(item, dict)])
         save_cache(cache)
-    print_json(response, args.compact)
-    return response
+    enriched = attach_skill_advertising(
+        args=args,
+        payload=response,
+        token=token,
+        cache=cache,
+    )
+    print_json(enriched, args.compact)
+    return enriched
 
 
 def command_teams(args: argparse.Namespace) -> Any:
@@ -1118,8 +1933,15 @@ def command_teams(args: argparse.Namespace) -> Any:
             [team_cache_record(item, workspace_gid=workspace) for item in teams if isinstance(item, dict)],
         )
         save_cache(cache)
-    print_json(response, args.compact)
-    return response
+    enriched = attach_skill_advertising(
+        args=args,
+        payload=response,
+        token=token,
+        workspace_gid=workspace,
+        cache=cache,
+    )
+    print_json(enriched, args.compact)
+    return enriched
 
 
 def command_projects(args: argparse.Namespace) -> Any:
@@ -1142,8 +1964,19 @@ def command_projects(args: argparse.Namespace) -> Any:
             [project_cache_record(item, team_gid=team) for item in projects if isinstance(item, dict)],
         )
         save_cache(cache)
-    print_json(response, args.compact)
-    return response
+    workspace_gid = None
+    team_record = find_cached_record(cache, "teams", team, fields=("workspace_gid",))
+    if isinstance(team_record, dict) and team_record.get("workspace_gid"):
+        workspace_gid = str(team_record["workspace_gid"])
+    enriched = attach_skill_advertising(
+        args=args,
+        payload=response,
+        token=token,
+        workspace_gid=workspace_gid,
+        cache=cache,
+    )
+    print_json(enriched, args.compact)
+    return enriched
 
 
 def command_users(args: argparse.Namespace) -> Any:
@@ -1164,8 +1997,15 @@ def command_users(args: argparse.Namespace) -> Any:
     if isinstance(users, list):
         cache_records(cache, "users", [user_cache_record(item) for item in users if isinstance(item, dict)])
         save_cache(cache)
-    print_json(response, args.compact)
-    return response
+    enriched = attach_skill_advertising(
+        args=args,
+        payload=response,
+        token=token,
+        workspace_gid=workspace,
+        cache=cache,
+    )
+    print_json(enriched, args.compact)
+    return enriched
 
 
 def command_task(args: argparse.Namespace) -> Any:
@@ -2279,14 +3119,280 @@ def command_update_project(args: argparse.Namespace) -> Any:
 
 def command_show_context(args: argparse.Namespace) -> Any:
     response = load_context()
-    print_json(response, args.compact)
-    return response
+    token = get_token(args)
+    cache = load_cache()
+    workspace_gid = str(response.get("workspace_gid") or "") or infer_workspace_gid_from_payload({"data": response}, cache)
+    enriched = attach_skill_advertising(
+        args=args,
+        payload=response if isinstance(response, dict) else {"data": response},
+        token=token,
+        workspace_gid=workspace_gid or None,
+        cache=cache,
+    )
+    print_json(enriched, args.compact)
+    return enriched
 
 
 def command_show_cache(args: argparse.Namespace) -> Any:
     response = load_cache()
-    print_json(response, args.compact)
-    return response
+    token = get_token(args)
+    workspace_gid = infer_workspace_gid_from_payload(response, response)
+    enriched = attach_skill_advertising(
+        args=args,
+        payload=response,
+        token=token,
+        workspace_gid=workspace_gid,
+        cache=response,
+    )
+    print_json(enriched, args.compact)
+    return enriched
+
+
+def command_inbox_cleanup(args: argparse.Namespace) -> Any:
+    token = get_token(args)
+    context = load_context()
+    cache = load_cache()
+    workspace = workspace_default(args, context, cache)
+    if not workspace:
+        raise SystemExit("No workspace GID provided and no default workspace in asana-context.json")
+
+    user_task_list = my_tasks_project(token, workspace)
+    user_task_list_gid = str(user_task_list.get("gid") or "").strip()
+    if not user_task_list_gid:
+        raise SystemExit("Unable to resolve My Tasks for the selected workspace")
+
+    all_tasks = my_tasks_tasks(
+        token,
+        user_task_list_gid,
+        paginate=not args.no_paginate,
+        limit_pages=args.limit_pages,
+    )
+    source_section_names = [name.strip() for name in args.source_section if name.strip()]
+    review_section_names = set(INBOX_CLEANUP_REVIEW_SECTIONS.values())
+
+    filtered_tasks: list[dict[str, Any]] = []
+    skipped_tasks: list[dict[str, Any]] = []
+    for task in all_tasks:
+        if not isinstance(task, dict):
+            continue
+        assignee_section = task.get("assignee_section") or {}
+        current_section_name = str(assignee_section.get("name") or "").strip()
+        if current_section_name in review_section_names and not args.all_open:
+            skipped_tasks.append(
+                {
+                    "task_gid": task.get("gid"),
+                    "name": task.get("name"),
+                    "current_section": current_section_name,
+                    "reason": "already_in_review_section",
+                }
+            )
+            continue
+
+        if not args.all_open and current_section_name not in source_section_names:
+            skipped_tasks.append(
+                {
+                    "task_gid": task.get("gid"),
+                    "name": task.get("name"),
+                    "current_section": current_section_name,
+                    "reason": "outside_source_sections",
+                }
+            )
+            continue
+        filtered_tasks.append(task)
+
+    if args.max_tasks > 0:
+        filtered_tasks = filtered_tasks[: args.max_tasks]
+
+    task_contexts = fetch_task_review_context(
+        token,
+        [str(task.get("gid")) for task in filtered_tasks if task.get("gid")],
+    )
+    existing_sections = my_tasks_sections(token, user_task_list_gid)
+    sections_by_name = ensure_review_sections(
+        token,
+        user_task_list_gid=user_task_list_gid,
+        existing_sections=existing_sections,
+        apply=args.apply,
+    )
+    created_section_names = [
+        name
+        for name in INBOX_CLEANUP_REVIEW_SECTIONS.values()
+        if name not in {str(section.get("name")) for section in existing_sections if isinstance(section, dict)}
+        and name in sections_by_name
+    ]
+
+    task_results: list[dict[str, Any]] = []
+    category_counts: dict[str, int] = {
+        key: 0 for key in INBOX_CLEANUP_REVIEW_SECTIONS
+    }
+    now = datetime.now(timezone.utc)
+
+    for task in filtered_tasks:
+        task_gid = str(task.get("gid") or "").strip()
+        if not task_gid:
+            continue
+        task_context = task_contexts.get(task_gid) or {"task": task, "stories": []}
+        classification = classify_inbox_cleanup_task(task_context, now)
+        category_key = classification["category_key"]
+        category_counts[category_key] += 1
+        target_section_name = classification["category_label"]
+        target_section = sections_by_name.get(target_section_name) or {}
+        target_section_gid = str(target_section.get("gid") or "").strip()
+        current_section_name = classification["current_my_tasks_section"]
+
+        move_result: dict[str, Any] | None = None
+        comment_result: dict[str, Any] | None = None
+        comment_was_posted = False
+
+        if args.apply and target_section_gid and current_section_name != target_section_name:
+            move_response = api_request(
+                token=token,
+                method="PUT",
+                path_or_url=f"/tasks/{task_gid}",
+                query={"opt_fields": "gid,name,assignee_section.gid,assignee_section.name"},
+                json_body={"data": {"assignee_section": target_section_gid}},
+            )
+            move_result = move_response.get("data", {})
+
+        if (
+            args.apply
+            and not args.skip_ready_comments
+            and category_key == "ready_to_close"
+            and not comment_already_mentions_inbox_cleanup(task_context.get("stories", []), target_section_name)
+        ):
+            comment_response = api_request(
+                token=token,
+                method="POST",
+                path_or_url=f"/tasks/{task_gid}/stories",
+                query={"opt_fields": story_write_opt_fields()},
+                json_body={
+                    "data": {
+                        "html_text": inbox_cleanup_comment_html(
+                            category_label=target_section_name,
+                            evidence_lines=classification["reasons"][:4],
+                        )
+                    }
+                },
+            )
+            comment_result = response_with_review_links(comment_response)
+            comment_was_posted = True
+
+        manager_comment_result: dict[str, Any] | None = None
+        manager_comment_posted = False
+        manager_plan = classification["manager_plan"]
+        manager_comment_allowed = bool(classification["manager_comment_allowed"])
+        manager_comment_block_reason = classification["shared_for_manager_comments_reason"]
+        if not manager_comment_block_reason and not classification["substantive_manager_context"]:
+            manager_comment_block_reason = "Task does not have enough context yet for a useful AI PM comment."
+        if not manager_comment_block_reason and classification["work_type"] == "admin":
+            manager_comment_block_reason = "Admin/personal reminder tasks are excluded from AI PM comments by default."
+        should_post_manager_comment = False
+        if args.apply and args.comment_research_todos and classification["work_type"] == "research":
+            should_post_manager_comment = True
+        elif args.apply and args.manager_comments and category_key in {
+            "needs_next_action",
+            "needs_verification",
+            "waiting_on_others",
+        }:
+            should_post_manager_comment = True
+
+        if (
+            should_post_manager_comment
+            and manager_comment_allowed
+            and not comment_already_mentions_manager_plan(task_context.get("stories", []), target_section_name)
+        ):
+            manager_comment_response = api_request(
+                token=token,
+                method="POST",
+                path_or_url=f"/tasks/{task_gid}/stories",
+                query={"opt_fields": story_write_opt_fields()},
+                json_body={
+                    "data": {
+                        "html_text": manager_plan_comment_html(
+                            category_label=target_section_name,
+                            work_type=classification["work_type"],
+                            next_action=manager_plan["next_action"],
+                            todo_label=manager_plan["todo_label"],
+                            todo_items=manager_plan["todo_items"],
+                            execution_prompt=manager_plan.get("execution_prompt"),
+                        )
+                    }
+                },
+            )
+            manager_comment_result = response_with_review_links(manager_comment_response)
+            manager_comment_posted = True
+
+        task_results.append(
+            {
+                "task_gid": task_gid,
+                "name": (task_context.get("task") or {}).get("name") or task.get("name"),
+                "permalink_url": (task_context.get("task") or {}).get("permalink_url") or task.get("permalink_url"),
+                "current_section": current_section_name,
+                "target_section": target_section_name,
+                "category_key": category_key,
+                "work_type": classification["work_type"],
+                "reasons": classification["reasons"],
+                "linked_prs": classification["linked_prs"],
+                "active_ai_action": classification["active_ai_action"],
+                "manager_plan": manager_plan,
+                "manager_comment_allowed": manager_comment_allowed,
+                "manager_comment_block_reason": manager_comment_block_reason,
+                "move_applied": bool(move_result),
+                "comment_posted": comment_was_posted,
+                "comment_review_url": comment_result.get("review_url") if isinstance(comment_result, dict) else None,
+                "manager_comment_posted": manager_comment_posted,
+                "manager_comment_review_url": manager_comment_result.get("review_url") if isinstance(manager_comment_result, dict) else None,
+            }
+        )
+
+    payload = {
+        "mode": "apply" if args.apply else "dry_run",
+        "workspace_gid": workspace,
+        "my_tasks": {
+            "gid": user_task_list_gid,
+            "name": user_task_list.get("name"),
+        },
+        "source_sections": source_section_names,
+        "all_open": bool(args.all_open),
+        "created_review_sections": created_section_names,
+        "review_sections": sections_by_name,
+        "counts": {
+            "all_open_tasks_in_my_tasks": len(all_tasks),
+            "tasks_considered": len(filtered_tasks),
+            "tasks_skipped": len(skipped_tasks),
+            "by_category": category_counts,
+            "by_work_type": {},
+        },
+        "tasks": task_results,
+        "skipped_tasks": skipped_tasks,
+    }
+    work_type_counts: dict[str, int] = {}
+    execution_candidates = 0
+    active_ai_action_counts: dict[str, int] = {}
+    for task_result in task_results:
+        work_type = str(task_result.get("work_type") or "unknown")
+        work_type_counts[work_type] = work_type_counts.get(work_type, 0) + 1
+        manager_plan = task_result.get("manager_plan") or {}
+        if isinstance(manager_plan, dict) and manager_plan.get("execution_candidate"):
+            execution_candidates += 1
+        active_ai = task_result.get("active_ai_action") or {}
+        if isinstance(active_ai, dict):
+            action_name = str(active_ai.get("action") or "unknown")
+            active_ai_action_counts[action_name] = active_ai_action_counts.get(action_name, 0) + 1
+    payload["counts"]["by_work_type"] = work_type_counts
+    payload["counts"]["execution_candidates"] = execution_candidates
+    payload["counts"]["by_active_ai_action"] = active_ai_action_counts
+    enriched = attach_skill_advertising(
+        args=args,
+        payload=payload,
+        token=token,
+        workspace_gid=workspace,
+        cache=cache,
+        include_first_run=True,
+        refresh_summary=True,
+    )
+    print_json(enriched, args.compact)
+    return enriched
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -2479,6 +3585,62 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("--limit-pages", type=int, default=0, help="Stop pagination after N pages")
     add_common_output_flags(search_parser)
     search_parser.set_defaults(func=command_search_tasks)
+
+    inbox_cleanup_parser = subparsers.add_parser(
+        "inbox-cleanup",
+        help="Triage My Tasks intake into Review sections and optionally comment on likely-ready-to-close tasks",
+    )
+    inbox_cleanup_parser.add_argument("--workspace", help="Workspace GID override")
+    inbox_cleanup_parser.add_argument(
+        "--source-section",
+        action="append",
+        default=list(DEFAULT_INBOX_CLEANUP_SOURCE_SECTIONS),
+        help="My Tasks section name to triage from; defaults to Recently assigned",
+    )
+    inbox_cleanup_parser.add_argument(
+        "--all-open",
+        action="store_true",
+        help="Ignore source-section filtering and classify all open tasks in My Tasks",
+    )
+    inbox_cleanup_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Create missing Review sections, move tasks, and post ready-to-close comments",
+    )
+    inbox_cleanup_parser.add_argument(
+        "--skip-ready-comments",
+        action="store_true",
+        help="Do not post AI review comments on likely-ready-to-close tasks",
+    )
+    inbox_cleanup_parser.add_argument(
+        "--manager-comments",
+        action="store_true",
+        help="Post AI manager-plan comments on research, coordination, and next-action tasks",
+    )
+    inbox_cleanup_parser.add_argument(
+        "--comment-research-todos",
+        action="store_true",
+        help="Post AI research TODO comments only for tasks classified as research",
+    )
+    inbox_cleanup_parser.add_argument(
+        "--max-tasks",
+        type=int,
+        default=0,
+        help="Limit how many filtered tasks to process after section filtering",
+    )
+    inbox_cleanup_parser.add_argument(
+        "--no-paginate",
+        action="store_true",
+        help="Do not follow My Tasks next_page links",
+    )
+    inbox_cleanup_parser.add_argument(
+        "--limit-pages",
+        type=int,
+        default=0,
+        help="Stop My Tasks pagination after N pages",
+    )
+    add_common_output_flags(inbox_cleanup_parser)
+    inbox_cleanup_parser.set_defaults(func=command_inbox_cleanup)
 
     create_task_parser = subparsers.add_parser("create-task", help="Create a task")
     create_task_parser.add_argument("--name", required=True)
