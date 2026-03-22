@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Bootstrap the Asana Codex skill for AI-assisted, low-touch setup.
+Bootstrap the Asana skill for AI-assisted, low-touch setup.
 
 This script:
 - verifies local prerequisites
 - refreshes the repo when safe
-- installs the skill into ~/.codex/skills/asana
-- ensures ~/.codex/skills-data/asana exists
+- installs the skill into Codex, Claude Code, or both
+- ensures shared local state exists
 - auto-builds asana-context.json when an Asana token is already available
 - otherwise seeds a starter context file from the example
 """
@@ -24,19 +24,26 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
-LOCAL_STATE_DIR = Path.home() / ".codex" / "skills-data" / "asana"
+LOCAL_STATE_DIR = Path.home() / ".agent-skills" / "asana"
+LEGACY_LOCAL_STATE_DIR = Path.home() / ".codex" / "skills-data" / "asana"
 TOKEN_FILE = LOCAL_STATE_DIR / "asana_pat"
 CONTEXT_FILE = LOCAL_STATE_DIR / "asana-context.json"
 CONTEXT_EXAMPLE_FILE = REPO_ROOT / "asana-context.example.json"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Bootstrap the Asana Codex skill")
+    parser = argparse.ArgumentParser(description="Bootstrap the Asana skill")
+    parser.add_argument(
+        "--agent",
+        choices=("codex", "claude", "both"),
+        default="both",
+        help="Install into Codex, Claude Code, or both",
+    )
     parser.add_argument(
         "--mode",
         choices=("symlink", "copy"),
         default="symlink",
-        help="Install mode for ~/.codex/skills/asana",
+        help="Install mode for the selected agent targets",
     )
     parser.add_argument(
         "--skip-update",
@@ -99,11 +106,13 @@ def maybe_update_repo(skip_update: bool) -> None:
         print(completed.stdout.strip())
 
 
-def install_skill(mode: str) -> None:
+def install_skill(agent: str, mode: str) -> None:
     completed = run_command(
         [
             sys.executable,
             str(REPO_ROOT / "scripts" / "install_skill.py"),
+            "--agent",
+            agent,
             "--mode",
             mode,
             "--replace",
@@ -163,6 +172,12 @@ def build_context_from_api() -> dict[str, object]:
 
 def ensure_local_state() -> None:
     LOCAL_STATE_DIR.mkdir(parents=True, exist_ok=True)
+    if LEGACY_LOCAL_STATE_DIR.exists():
+        for filename in ("asana_pat", "asana-context.json"):
+            legacy_file = LEGACY_LOCAL_STATE_DIR / filename
+            target = LOCAL_STATE_DIR / filename
+            if legacy_file.exists() and not target.exists():
+                shutil.copy2(legacy_file, target)
 
 
 def write_context_if_missing_or_refreshable() -> str:
@@ -217,7 +232,7 @@ def main() -> int:
     ensure_git()
     ensure_local_state()
     maybe_update_repo(args.skip_update)
-    install_skill(args.mode)
+    install_skill(args.agent, args.mode)
     print(write_context_if_missing_or_refreshable())
     print(maybe_verify(args.skip_verify))
     print_next_steps()

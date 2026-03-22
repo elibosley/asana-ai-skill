@@ -107,7 +107,7 @@ Comment on a task:
 
 ```bash
 python3 scripts/asana_api.py comment-task <task_gid> \
-  --text "Posted from Codex after verifying the latest status."
+  --text "Posted from the AI assistant after verifying the latest status."
 ```
 
 Comment on a task with proper Asana rich-text formatting:

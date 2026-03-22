@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Best-effort updater for the Asana Codex skill.
+Best-effort updater for the Asana skill.
 
 - For git-backed installs, fast-forwards the current checkout.
-- For copied installs, bootstraps a managed clone under ~/.codex/skill-sources
-  and re-points ~/.codex/skills/asana at that checkout.
+- For copied installs, bootstraps a managed clone under ~/.agent-skills/sources
+  and re-points the selected agent skill directories at that checkout.
 - Tracks a last-check timestamp so the skill can safely invoke this on use.
 """
 
@@ -21,8 +21,9 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
-LOCAL_STATE_DIR = Path.home() / ".codex" / "skills-data" / "asana"
-MANAGED_SOURCE_DIR = Path.home() / ".codex" / "skill-sources" / "asana-codex-skill"
+LOCAL_STATE_DIR = Path.home() / ".agent-skills" / "asana"
+LEGACY_LOCAL_STATE_DIR = Path.home() / ".codex" / "skills-data" / "asana"
+MANAGED_SOURCE_DIR = Path.home() / ".agent-skills" / "sources" / "asana-codex-skill"
 STATE_FILE = LOCAL_STATE_DIR / "auto-update.json"
 DEFAULT_BRANCH = "main"
 DEFAULT_INTERVAL_MINUTES = 360
@@ -33,7 +34,7 @@ REPO_URL_CANDIDATES = [
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Update the Asana Codex skill in place")
+    parser = argparse.ArgumentParser(description="Update the Asana skill in place")
     parser.add_argument("--force", action="store_true", help="Ignore the update interval gate")
     parser.add_argument(
         "--interval-minutes",
@@ -80,6 +81,8 @@ def read_state() -> dict[str, str]:
 def write_state(state: dict[str, str]) -> None:
     LOCAL_STATE_DIR.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, indent=2, sort_keys=True))
+    if LEGACY_LOCAL_STATE_DIR.exists():
+        LEGACY_LOCAL_STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def now_utc() -> datetime:
@@ -156,6 +159,8 @@ def install_from_repo(repo_root: Path) -> None:
         [
             sys.executable,
             str(repo_root / "scripts" / "install_skill.py"),
+            "--agent",
+            "both",
             "--mode",
             "symlink",
             "--replace",

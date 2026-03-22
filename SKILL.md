@@ -1,6 +1,6 @@
 ---
 name: asana
-description: Use when reading or updating Asana data through the REST API, including tasks, projects, sections, stories/comments, teams, users, tags, attachments, custom fields, and workspace metadata. Best for local automation or one-off Asana admin/workflow tasks where Codex should make direct API calls with a personal access token.
+description: Use when reading or updating Asana data through the REST API, including tasks, projects, sections, stories/comments, teams, users, tags, attachments, custom fields, and workspace metadata. Best for local automation or one-off Asana admin/workflow tasks where an AI coding agent should make direct API calls with a personal access token.
 ---
 
 # Asana
@@ -9,17 +9,17 @@ description: Use when reading or updating Asana data through the REST API, inclu
 
 This skill provides a local, reusable Asana API wrapper plus concise references for the common read/write flows in Asana.
 
-Use it when you need to inspect or mutate Asana objects directly from Codex instead of clicking through the UI.
+Use it when you need to inspect or mutate Asana objects directly from an AI coding agent instead of clicking through the UI.
 
 ## Default Context
 
 - Skill root: the installed `asana` skill directory
 - API helper: `scripts/asana_api.py`
-- Preferred token file: `~/.codex/skills-data/asana/asana_pat`
-- Preferred defaults/context file: `~/.codex/skills-data/asana/asana-context.json`
+- Preferred token file: `~/.agent-skills/asana/asana_pat`
+- Preferred defaults/context file: `~/.agent-skills/asana/asana-context.json`
 - Overrides: `ASANA_TOKEN_FILE` and `ASANA_CONTEXT_FILE`
 
-The helper reads the PAT from `ASANA_ACCESS_TOKEN` first, then falls back to the preferred local token file and finally to the legacy in-skill `.secrets/asana_pat` path.
+The helper reads the PAT from `ASANA_ACCESS_TOKEN` first, then falls back to the shared local token file, then the legacy `~/.codex/skills-data/asana/asana_pat` path, and finally to the legacy in-skill `.secrets/asana_pat` path.
 
 ## Workflow
 

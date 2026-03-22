@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Thin Asana API helper for local Codex skills.
+Thin Asana API helper for local AI agent skills.
 
 Features:
 - Reads PAT from ASANA_ACCESS_TOKEN or a local token file
@@ -26,10 +26,13 @@ from urllib import error, parse, request
 
 BASE_URL = "https://app.asana.com/api/1.0"
 SKILL_DIR = Path(__file__).resolve().parent.parent
-LOCAL_STATE_DIR = Path.home() / ".codex" / "skills-data" / "asana"
+LOCAL_STATE_DIR = Path.home() / ".agent-skills" / "asana"
+LEGACY_LOCAL_STATE_DIR = Path.home() / ".codex" / "skills-data" / "asana"
 DEFAULT_TOKEN_FILE = LOCAL_STATE_DIR / "asana_pat"
+LEGACY_SHARED_TOKEN_FILE = LEGACY_LOCAL_STATE_DIR / "asana_pat"
 LEGACY_TOKEN_FILE = SKILL_DIR / ".secrets" / "asana_pat"
 DEFAULT_CONTEXT_FILE = LOCAL_STATE_DIR / "asana-context.json"
+LEGACY_SHARED_CONTEXT_FILE = LEGACY_LOCAL_STATE_DIR / "asana-context.json"
 LEGACY_CONTEXT_FILE = SKILL_DIR / "asana-context.json"
 
 
@@ -39,6 +42,8 @@ def token_file() -> Path:
         return Path(configured).expanduser()
     if DEFAULT_TOKEN_FILE.exists():
         return DEFAULT_TOKEN_FILE
+    if LEGACY_SHARED_TOKEN_FILE.exists():
+        return LEGACY_SHARED_TOKEN_FILE
     return LEGACY_TOKEN_FILE
 
 
@@ -48,6 +53,8 @@ def context_file() -> Path:
         return Path(configured).expanduser()
     if DEFAULT_CONTEXT_FILE.exists():
         return DEFAULT_CONTEXT_FILE
+    if LEGACY_SHARED_CONTEXT_FILE.exists():
+        return LEGACY_SHARED_CONTEXT_FILE
     return LEGACY_CONTEXT_FILE
 
 

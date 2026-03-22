@@ -12,8 +12,8 @@
 
 - Base URL: `https://app.asana.com/api/1.0`
 - Auth header: `Authorization: Bearer <PAT>`
-- The local helper reads the PAT from `ASANA_ACCESS_TOKEN`, then from `~/.codex/skills-data/asana/asana_pat`, and finally from the legacy in-skill `.secrets/asana_pat` unless `ASANA_TOKEN_FILE` is set.
-- Workspace and team defaults can be stored in `~/.codex/skills-data/asana/asana-context.json` unless `ASANA_CONTEXT_FILE` is set.
+- The local helper reads the PAT from `ASANA_ACCESS_TOKEN`, then from `~/.agent-skills/asana/asana_pat`, then the legacy `~/.codex/skills-data/asana/asana_pat`, and finally from the legacy in-skill `.secrets/asana_pat` unless `ASANA_TOKEN_FILE` is set.
+- Workspace and team defaults can be stored in `~/.agent-skills/asana/asana-context.json` unless `ASANA_CONTEXT_FILE` is set.
 
 ## Request shape
 
@@ -26,7 +26,7 @@ Examples:
 ```
 
 ```json
-{"data":{"notes":"Updated from Codex","completed":true}}
+{"data":{"notes":"Updated from AI assistant","completed":true}}
 ```
 
 The helper wraps JSON payloads in `data` automatically unless you pass `--no-wrap-data`.

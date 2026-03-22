@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Install or update the Asana skill into ~/.codex/skills/asana.
+Install or update the Asana skill into Codex, Claude Code, or both.
 
 Defaults to a symlink install so the paired updater can fast-forward the live skill.
 """
@@ -15,8 +15,12 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_DEST = Path.home() / ".codex" / "skills" / "asana"
-LOCAL_STATE_DIR = Path.home() / ".codex" / "skills-data" / "asana"
+LOCAL_STATE_DIR = Path.home() / ".agent-skills" / "asana"
+LEGACY_LOCAL_STATE_DIR = Path.home() / ".codex" / "skills-data" / "asana"
+DEFAULT_DESTS = {
+    "codex": Path.home() / ".codex" / "skills" / "asana",
+    "claude": Path.home() / ".claude" / "skills" / "asana",
+}
 PRESERVED_FILES = [
     (".secrets/asana_pat", False),
     ("asana-context.json", True),
@@ -24,7 +28,13 @@ PRESERVED_FILES = [
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Install the Asana Codex skill locally")
+    parser = argparse.ArgumentParser(description="Install the Asana skill locally")
+    parser.add_argument(
+        "--agent",
+        choices=("codex", "claude", "both"),
+        default="both",
+        help="Install into Codex, Claude Code, or both",
+    )
     parser.add_argument(
         "--mode",
         choices=("symlink", "copy"),
@@ -33,8 +43,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--dest",
-        default=str(DEFAULT_DEST),
-        help="Destination skill directory",
+        help="Destination skill directory for a single-agent install",
     )
     parser.add_argument(
         "--replace",
@@ -80,6 +89,8 @@ def restore_local_files(stash_dir: Path) -> None:
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
+    if LEGACY_LOCAL_STATE_DIR.exists():
+        LEGACY_LOCAL_STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def remove_existing(dest: Path) -> None:
@@ -104,32 +115,17 @@ def install_copy(dest: Path) -> None:
     shutil.copytree(REPO_ROOT, dest, ignore=ignore_for_copy, dirs_exist_ok=False)
 
 
-def write_next_steps(dest: Path, mode: str) -> None:
-    print(f"Installed Asana skill to {dest} using {mode} mode.")
-    print("Next steps:")
-    print("1. Add your PAT to ASANA_ACCESS_TOKEN or ~/.codex/skills-data/asana/asana_pat.")
-    print("2. Copy asana-context.example.json to ~/.codex/skills-data/asana/asana-context.json.")
-    print("3. Verify with: python3 scripts/asana_api.py whoami")
-    print("4. Auto-update with: python3 scripts/update_skill.py --force")
-    if mode == "symlink":
-        print(f"5. Manual git update still works: git -C {REPO_ROOT} pull --ff-only")
-
-
-def main() -> None:
-    ensure_python()
-    args = parse_args()
-    dest = Path(args.dest).expanduser()
+def install_one(dest: Path, mode: str, replace: bool) -> tuple[Path, Path]:
     resolved_dest = safe_resolve(dest)
 
     if dest.exists() or dest.is_symlink():
         if dest.is_symlink() and resolved_dest == REPO_ROOT.resolve():
-            write_next_steps(dest, args.mode)
-            return
+            return dest, Path(os.path.realpath(dest))
         if dest.exists() and not dest.is_symlink() and resolved_dest == REPO_ROOT.resolve():
             raise SystemExit(
                 f"Refusing to install into the repo source path itself: {dest}"
             )
-        if not args.replace:
+        if not replace:
             raise SystemExit(
                 f"{dest} already exists. Re-run with --replace to swap it out safely."
             )
@@ -143,7 +139,7 @@ def main() -> None:
     else:
         stash_dir = None
 
-    if args.mode == "symlink":
+    if mode == "symlink":
         install_symlink(dest)
     else:
         install_copy(dest)
@@ -152,7 +148,45 @@ def main() -> None:
         restore_local_files(stash_dir)
         shutil.rmtree(stash_dir, ignore_errors=True)
 
-    write_next_steps(Path(os.path.realpath(dest)), args.mode)
+    return dest, Path(os.path.realpath(dest))
+
+
+def selected_targets(agent: str, explicit_dest: str | None) -> list[tuple[str, Path]]:
+    if explicit_dest:
+        if agent == "both":
+            raise SystemExit("--dest can only be used with --agent codex or --agent claude.")
+        return [(agent, Path(explicit_dest).expanduser())]
+    if agent == "both":
+        return [("codex", DEFAULT_DESTS["codex"]), ("claude", DEFAULT_DESTS["claude"])]
+    return [(agent, DEFAULT_DESTS[agent])]
+
+
+def write_next_steps(installed: list[tuple[str, Path, Path]], mode: str) -> None:
+    for agent, install_path, source_path in installed:
+        if install_path == source_path:
+            print(f"Installed Asana skill for {agent} at {install_path} using {mode} mode.")
+        else:
+            print(
+                f"Installed Asana skill for {agent} at {install_path} -> {source_path} "
+                f"using {mode} mode."
+            )
+    print("Next steps:")
+    print("1. Add your PAT to ASANA_ACCESS_TOKEN or ~/.agent-skills/asana/asana_pat.")
+    print("2. Copy asana-context.example.json to ~/.agent-skills/asana/asana-context.json.")
+    print("3. Verify with: python3 scripts/asana_api.py whoami")
+    print("4. Auto-update with: python3 scripts/update_skill.py --force")
+    if mode == "symlink":
+        print(f"5. Manual git update still works: git -C {REPO_ROOT} pull --ff-only")
+
+
+def main() -> None:
+    ensure_python()
+    args = parse_args()
+    installed = []
+    for agent, dest in selected_targets(args.agent, args.dest):
+        install_path, source_path = install_one(dest, args.mode, args.replace)
+        installed.append((agent, install_path, source_path))
+    write_next_steps(installed, args.mode)
 
 
 if __name__ == "__main__":
