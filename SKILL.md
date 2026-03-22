@@ -51,6 +51,7 @@ The helper reads the PAT from `ASANA_ACCESS_TOKEN` first, then falls back to the
    - Task descriptions/notes: `html_notes`
 17. Do not paste Markdown-style bullets or escaped `\n` sequences into plain `text` fields when the message needs headings, lists, or paragraphs. Prefer proper HTML structure.
 18. Before posting or updating an AI-authored message, sanity-check how it will render in Asana: use paragraphs, `<strong>` for labels, and `<ul><li>` for lists rather than relying on Markdown.
+19. After any write that creates or updates a task or story, include the returned Asana `review_url` in your user-facing reply so the user can click straight into the updated object. For story writes, also surface `target_review_url` when helpful so the user can review the parent task.
 
 ## AI Message Format
 

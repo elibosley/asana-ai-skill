@@ -148,3 +148,7 @@ The skill can also call the updater in best-effort mode during normal use, with 
 - `.secrets/` is still gitignored for backward compatibility
 - `asana-context.json` in the repo is gitignored for backward compatibility
 - The repo ships only `asana-context.example.json`
+
+## Write Output
+
+Write commands that create or update tasks or stories now return a direct `review_url` in their JSON output so an agent can link the user straight to the changed Asana object. Story/comment writes also return `target_review_url` for the parent task when Asana includes it.

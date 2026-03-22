@@ -543,6 +543,42 @@ def print_json(payload: Any, compact: bool) -> None:
     print(json.dumps(payload, indent=2, sort_keys=True))
 
 
+def task_write_opt_fields() -> str:
+    return (
+        "gid,name,completed,completed_at,permalink_url,assignee.gid,assignee.name,"
+        "due_on,due_at,parent.gid,parent.name"
+    )
+
+
+def story_write_opt_fields() -> str:
+    return (
+        "gid,created_at,resource_subtype,permalink_url,target.gid,target.name,"
+        "target.permalink_url"
+    )
+
+
+def response_with_review_links(response: Any) -> Any:
+    if not isinstance(response, dict):
+        return response
+
+    data = response.get("data")
+    if not isinstance(data, dict):
+        return response
+
+    enriched = dict(response)
+    review_url = str(data.get("permalink_url") or "").strip()
+    if review_url:
+        enriched["review_url"] = review_url
+
+    target = data.get("target")
+    if isinstance(target, dict):
+        target_review_url = str(target.get("permalink_url") or "").strip()
+        if target_review_url:
+            enriched["target_review_url"] = target_review_url
+
+    return enriched
+
+
 def batch_actions_request(token: str, actions: list[dict[str, Any]]) -> Any:
     return api_request(
         token=token,
@@ -1920,14 +1956,16 @@ def command_create_task(args: argparse.Namespace) -> Any:
         token=token,
         method="POST",
         path_or_url="/tasks",
+        query={"opt_fields": task_write_opt_fields()},
         json_body={"data": payload},
     )
     task = response.get("data", {})
     if isinstance(task, dict) and isinstance(task.get("assignee"), dict):
         cache_record(cache, "users", user_cache_record(task["assignee"]))
         save_cache(cache)
-    print_json(response, args.compact)
-    return response
+    enriched = response_with_review_links(response)
+    print_json(enriched, args.compact)
+    return enriched
 
 
 def command_update_task(args: argparse.Namespace) -> Any:
@@ -1939,14 +1977,16 @@ def command_update_task(args: argparse.Namespace) -> Any:
         token=token,
         method="PUT",
         path_or_url=f"/tasks/{args.task_gid}",
+        query={"opt_fields": task_write_opt_fields()},
         json_body={"data": payload},
     )
     task = response.get("data", {})
     if isinstance(task, dict) and isinstance(task.get("assignee"), dict):
         cache_record(cache, "users", user_cache_record(task["assignee"]))
         save_cache(cache)
-    print_json(response, args.compact)
-    return response
+    enriched = response_with_review_links(response)
+    print_json(enriched, args.compact)
+    return enriched
 
 
 def command_comment_task(args: argparse.Namespace) -> Any:
@@ -1956,10 +1996,12 @@ def command_comment_task(args: argparse.Namespace) -> Any:
         token=token,
         method="POST",
         path_or_url=f"/tasks/{args.task_gid}/stories",
+        query={"opt_fields": story_write_opt_fields()},
         json_body={"data": payload},
     )
-    print_json(response, args.compact)
-    return response
+    enriched = response_with_review_links(response)
+    print_json(enriched, args.compact)
+    return enriched
 
 
 def command_update_story(args: argparse.Namespace) -> Any:
@@ -1969,10 +2011,12 @@ def command_update_story(args: argparse.Namespace) -> Any:
         token=token,
         method="PUT",
         path_or_url=f"/stories/{args.story_gid}",
+        query={"opt_fields": story_write_opt_fields()},
         json_body={"data": payload},
     )
-    print_json(response, args.compact)
-    return response
+    enriched = response_with_review_links(response)
+    print_json(enriched, args.compact)
+    return enriched
 
 
 def command_create_project(args: argparse.Namespace) -> Any:

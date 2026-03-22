@@ -133,6 +133,11 @@ python3 scripts/asana_api.py comment-task <task_gid> \
   --text "Posted from the AI assistant after verifying the latest status."
 ```
 
+Successful write responses now include:
+
+- `review_url`: direct Asana link to the created or updated object
+- `target_review_url`: for story/comment writes, the parent task link when Asana returns it
+
 Comment on a task with proper Asana rich-text formatting:
 
 ```bash
