@@ -750,6 +750,14 @@ def story_opt_fields(default: str | None = None) -> str:
     return default or "gid,created_at,created_by.name,text,html_text,type,resource_subtype"
 
 
+def story_detail_opt_fields(default: str | None = None) -> str:
+    return default or (
+        "gid,created_at,created_by.gid,created_by.name,text,html_text,type,"
+        "resource_subtype,permalink_url,target.gid,target.name,target.resource_type,"
+        "target.permalink_url"
+    )
+
+
 def custom_field_setting_opt_fields(default: str | None = None) -> str:
     return default or (
         "gid,is_important,custom_field.gid,custom_field.name,"
@@ -988,6 +996,19 @@ def command_task(args: argparse.Namespace) -> Any:
             "projects.name,memberships.section.name,parent.name,permalink_url,notes",
         },
     )
+    print_json(response, args.compact)
+    return response
+
+
+def command_story(args: argparse.Namespace) -> Any:
+    token = get_token(args)
+    response = api_request(
+        token=token,
+        method="GET",
+        path_or_url=f"/stories/{args.story_gid}",
+        query={"opt_fields": args.opt_fields or story_detail_opt_fields()},
+    )
+    response = response_with_review_links(response)
     print_json(response, args.compact)
     return response
 
@@ -2135,6 +2156,12 @@ def build_parser() -> argparse.ArgumentParser:
     task_parser.add_argument("--opt-fields", help="Override task fields")
     add_common_output_flags(task_parser)
     task_parser.set_defaults(func=command_task)
+
+    story_parser = subparsers.add_parser("story", help="Inspect a story/comment by gid")
+    story_parser.add_argument("story_gid")
+    story_parser.add_argument("--opt-fields", help="Override story fields")
+    add_common_output_flags(story_parser)
+    story_parser.set_defaults(func=command_story)
 
     task_bundle_parser = subparsers.add_parser(
         "task-bundle",

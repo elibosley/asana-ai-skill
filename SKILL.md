@@ -95,6 +95,7 @@ python3 scripts/asana_api.py project-assigned-tasks <project_gid> --completed fa
 python3 scripts/asana_api.py sections <project_gid>
 python3 scripts/asana_api.py board <project_gid>
 python3 scripts/asana_api.py task <task_gid>
+python3 scripts/asana_api.py story <story_gid>
 python3 scripts/asana_api.py task-bundle <task_gid> --project-gid <project_gid>
 python3 scripts/asana_api.py task-status <task_gid>
 python3 scripts/asana_api.py task-stories <task_gid>

@@ -43,6 +43,7 @@ Inspect a task or project:
 
 ```bash
 python3 scripts/asana_api.py task <task_gid>
+python3 scripts/asana_api.py story <story_gid>
 python3 scripts/asana_api.py task-bundle <task_gid> --project-gid <project_gid>
 python3 scripts/asana_api.py task-status <task_gid> --include-task-position
 python3 scripts/asana_api.py project <project_gid>
@@ -54,6 +55,8 @@ python3 scripts/asana_api.py task-custom-fields <task_gid>
 
 `task-bundle` is the best default for planning work from one ticket.
 It returns the task body, filtered comments, attachments, image URLs, project custom-field settings, and project section order together.
+
+Use `story` when you already have a story/comment gid and want the direct permalink plus parent task link without paying for a broader task lookup.
 
 List tasks or sections inside a project:
 
