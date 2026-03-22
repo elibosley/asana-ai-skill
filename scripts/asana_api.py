@@ -13,6 +13,8 @@ Features:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import json
 import mimetypes
 import os
@@ -21,6 +23,7 @@ import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 from urllib import error, parse, request
 
@@ -117,12 +120,97 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def parse_iso_timestamp(value: str | None) -> datetime:
+    token = str(value or "").strip()
+    if not token:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if token.endswith("Z"):
+        token = f"{token[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(token)
+    except ValueError:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def merge_cache_records(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(existing)
+    for key, value in incoming.items():
+        if value is not None:
+            merged[key] = value
+
+    existing_cached_at = parse_iso_timestamp(existing.get("cached_at"))
+    incoming_cached_at = parse_iso_timestamp(incoming.get("cached_at"))
+    merged["cached_at"] = (
+        incoming.get("cached_at")
+        if incoming_cached_at >= existing_cached_at
+        else existing.get("cached_at")
+    )
+    return merged
+
+
+def merge_cache_data(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    merged = ensure_cache_shape(dict(base))
+    incoming_normalized = ensure_cache_shape(dict(incoming))
+
+    for bucket_name in ("workspaces", "teams", "projects", "users", "tags"):
+        merged_bucket = cache_bucket(merged, bucket_name)
+        incoming_bucket = cache_bucket(incoming_normalized, bucket_name)
+        for gid, record in incoming_bucket["by_gid"].items():
+            if not isinstance(record, dict):
+                continue
+            existing_record = merged_bucket["by_gid"].get(gid, {})
+            if isinstance(existing_record, dict):
+                merged_bucket["by_gid"][gid] = merge_cache_records(existing_record, record)
+            else:
+                merged_bucket["by_gid"][gid] = dict(record)
+
+    merged_metadata = merged.setdefault("metadata", {})
+    incoming_metadata = incoming_normalized.get("metadata", {})
+    for key in ("current_user_gid", "current_user_name"):
+        if incoming_metadata.get(key) is not None:
+            merged_metadata[key] = incoming_metadata[key]
+    return merged
+
+
+@contextlib.contextmanager
+def cache_lock(file_path: Path):
+    lock_path = file_path.with_name(f"{file_path.name}.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def save_cache(cache: dict[str, Any]) -> Path:
     file_path = cache_file()
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    normalized = ensure_cache_shape(cache)
-    normalized["metadata"]["updated_at"] = now_iso()
-    file_path.write_text(f"{json.dumps(normalized, indent=2, sort_keys=True)}\n")
+
+    with cache_lock(file_path):
+        on_disk = empty_cache()
+        if file_path.exists():
+            on_disk = ensure_cache_shape(json.loads(file_path.read_text()))
+
+        normalized = merge_cache_data(on_disk, cache)
+        normalized["metadata"]["updated_at"] = now_iso()
+
+        with NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=file_path.parent,
+            prefix=f"{file_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp_file:
+            tmp_file.write(f"{json.dumps(normalized, indent=2, sort_keys=True)}\n")
+            temp_path = Path(tmp_file.name)
+
+        os.replace(temp_path, file_path)
     return file_path
 
 
