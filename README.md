@@ -140,6 +140,24 @@ The skill can also call the updater in best-effort mode during normal use, with 
 - Symlink install: `git -C ~/Code/asana-codex-skill pull --ff-only`
 - Copy install: the updater will convert it to a managed git-backed install automatically
 - GitHub install through AI: ask the AI to reinstall or refresh the skill from the repo
+- The skill now tracks a gstack-style 4-part `VERSION` plus a user-facing `CHANGELOG.md`
+- On update, the updater reports version-aware changes and can print a concise changelog summary
+
+## Versioning
+
+This skill now follows the same internal release shape gstack uses:
+
+- `VERSION` uses `MAJOR.MINOR.PATCH.MICRO`
+- `CHANGELOG.md` is for user-facing release notes, not contributor-only implementation detail
+- Every shipped skill update should bump `VERSION` and add a matching changelog entry
+
+Helpful commands:
+
+```bash
+cat VERSION
+python3 scripts/bump_version.py --part micro --title "Short release title"
+python3 scripts/update_skill.py --force
+```
 
 ## Secret handling
 

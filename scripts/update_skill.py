@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -27,7 +28,11 @@ MANAGED_SOURCE_DIR = Path.home() / ".agent-skills" / "sources" / "asana-codex-sk
 STATE_FILE = LOCAL_STATE_DIR / "auto-update.json"
 DEFAULT_BRANCH = "main"
 DEFAULT_INTERVAL_MINUTES = 360
+VERSION_FILE_NAME = "VERSION"
+CHANGELOG_FILE_NAME = "CHANGELOG.md"
 REPO_URL_CANDIDATES = [
+    "git@github.com:unraid/asana-ai-skill.git",
+    "https://github.com/unraid/asana-ai-skill.git",
     "git@github.com:unraid/asana-codex-skill.git",
     "https://github.com/unraid/asana-codex-skill.git",
 ]
@@ -87,6 +92,97 @@ def write_state(state: dict[str, str]) -> None:
 
 def now_utc() -> datetime:
     return datetime.now(UTC)
+
+
+def version_file(repo_root: Path) -> Path:
+    return repo_root / VERSION_FILE_NAME
+
+
+def changelog_file(repo_root: Path) -> Path:
+    return repo_root / CHANGELOG_FILE_NAME
+
+
+def read_version(repo_root: Path) -> str | None:
+    file_path = version_file(repo_root)
+    if not file_path.exists():
+        return None
+    value = file_path.read_text().strip()
+    return value or None
+
+
+def parse_version(value: str | None) -> tuple[int, ...] | None:
+    token = str(value or "").strip()
+    if not re.fullmatch(r"\d+\.\d+\.\d+\.\d+", token):
+        return None
+    return tuple(int(part) for part in token.split("."))
+
+
+def changelog_entries(repo_root: Path) -> list[dict[str, str]]:
+    file_path = changelog_file(repo_root)
+    if not file_path.exists():
+        return []
+
+    text = file_path.read_text()
+    header_pattern = re.compile(
+        r"^## \[(?P<version>[^\]]+)\] - (?P<date>\d{4}-\d{2}-\d{2})(?: — (?P<title>.+))?$",
+        re.MULTILINE,
+    )
+    matches = list(header_pattern.finditer(text))
+    entries: list[dict[str, str]] = []
+    for index, match in enumerate(matches):
+        body_start = match.end()
+        body_end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        entries.append(
+            {
+                "version": match.group("version").strip(),
+                "date": match.group("date").strip(),
+                "title": (match.group("title") or "").strip(),
+                "body": text[body_start:body_end].strip(),
+            }
+        )
+    return entries
+
+
+def entries_between_versions(repo_root: Path, old_version: str | None, new_version: str | None) -> list[dict[str, str]]:
+    new_tuple = parse_version(new_version)
+    if new_tuple is None:
+        return []
+
+    old_tuple = parse_version(old_version)
+    selected: list[dict[str, str]] = []
+    for entry in changelog_entries(repo_root):
+        entry_tuple = parse_version(entry.get("version"))
+        if entry_tuple is None:
+            continue
+        if entry_tuple > new_tuple:
+            continue
+        if old_tuple is not None and entry_tuple <= old_tuple:
+            continue
+        selected.append(entry)
+    return selected
+
+
+def summarize_changelog_entries(entries: list[dict[str, str]]) -> str:
+    if not entries:
+        return ""
+
+    lines = ["What's new:"]
+    for entry in entries:
+        version = entry.get("version", "").strip()
+        title = entry.get("title", "").strip()
+        headline = f"- v{version}"
+        if title:
+            headline += f" — {title}"
+        lines.append(headline)
+
+        bullets = [
+            line.strip()
+            for line in entry.get("body", "").splitlines()
+            if line.strip().startswith("- ")
+        ]
+        for bullet in bullets[:3]:
+            lines.append(f"  {bullet}")
+    return "\n".join(lines)
 
 
 def should_check(args: argparse.Namespace, state: dict[str, str]) -> bool:
@@ -150,7 +246,7 @@ def clone_managed_source() -> Path:
         if completed.returncode == 0:
             return MANAGED_SOURCE_DIR
     raise RuntimeError(
-        "Unable to clone the private Asana skill repo. Confirm git access to Unraid/asana-codex-skill."
+        "Unable to clone the private Asana skill repo. Confirm git access to Unraid/asana-ai-skill."
     )
 
 
@@ -171,11 +267,13 @@ def install_from_repo(repo_root: Path) -> None:
     )
 
 
-def fast_forward_repo(repo_root: Path, *, quiet: bool) -> tuple[bool, str]:
+def fast_forward_repo(repo_root: Path, *, quiet: bool) -> tuple[bool, str, str | None, str | None, str]:
     ensure_origin(repo_root)
     if repo_has_uncommitted_changes(repo_root):
-        return False, f"Skipped auto-update because {repo_root} has local changes."
+        current_version = read_version(repo_root)
+        return False, f"Skipped auto-update because {repo_root} has local changes.", current_version, current_version, ""
 
+    before_version = read_version(repo_root)
     before = run_git(["rev-parse", "HEAD"], cwd=repo_root, quiet=True)
     run_git(["fetch", "--prune", "origin"], cwd=repo_root, quiet=True)
     remote_ref = f"origin/{DEFAULT_BRANCH}"
@@ -185,16 +283,41 @@ def fast_forward_repo(repo_root: Path, *, quiet: bool) -> tuple[bool, str]:
         raise RuntimeError(f"Remote branch {remote_ref} was not found.") from exc
 
     if before == after_remote:
-        return False, "Already up to date."
+        current_version = read_version(repo_root)
+        message = f"Already up to date at v{current_version}." if current_version else "Already up to date."
+        return False, message, current_version, current_version, ""
 
     run_git(["pull", "--ff-only", "origin", DEFAULT_BRANCH], cwd=repo_root, quiet=True)
     after = run_git(["rev-parse", "--short", "HEAD"], cwd=repo_root, quiet=True)
-    return True, f"Updated Asana skill to commit {after}."
+    after_version = read_version(repo_root)
+    changelog_summary = summarize_changelog_entries(
+        entries_between_versions(repo_root, before_version, after_version)
+    )
+
+    if before_version and after_version and before_version != after_version:
+        message = f"Updated Asana skill from v{before_version} to v{after_version} ({after})."
+    elif after_version:
+        message = f"Updated Asana skill to v{after_version} ({after})."
+    else:
+        message = f"Updated Asana skill to commit {after}."
+
+    return True, message, before_version, after_version, changelog_summary
 
 
-def record_check(state: dict[str, str], *, updated: bool, message: str) -> None:
+def record_check(
+    state: dict[str, str],
+    *,
+    updated: bool,
+    message: str,
+    version: str | None = None,
+    changelog_summary: str = "",
+) -> None:
     state["last_checked_at"] = now_utc().isoformat()
     state["last_message"] = message
+    if version:
+        state["last_version"] = version
+    if changelog_summary:
+        state["last_changelog_summary"] = changelog_summary
     if updated:
         state["last_updated_at"] = state["last_checked_at"]
     write_state(state)
@@ -206,22 +329,44 @@ def update_current_install(args: argparse.Namespace) -> int:
         return 0
 
     repo_root = repo_root_for(SKILL_DIR)
-    message = "Already up to date."
+    message = f"Already up to date at v{read_version(SKILL_DIR) or 'unknown'}."
     updated = False
+    current_version = read_version(SKILL_DIR)
+    changelog_summary = ""
 
     if repo_root is None:
         repo_root = clone_managed_source()
-        updated, message = fast_forward_repo(repo_root, quiet=args.quiet)
+        updated, message, _before_version, current_version, changelog_summary = fast_forward_repo(
+            repo_root,
+            quiet=args.quiet,
+        )
         install_from_repo(repo_root)
         if not updated:
-            message = "Switched copied install to managed git-backed install."
+            current_version = read_version(repo_root)
+            message = (
+                f"Switched copied install to managed git-backed install at v{current_version}."
+                if current_version
+                else "Switched copied install to managed git-backed install."
+            )
             updated = True
     else:
-        updated, message = fast_forward_repo(repo_root, quiet=args.quiet)
+        updated, message, _before_version, current_version, changelog_summary = fast_forward_repo(
+            repo_root,
+            quiet=args.quiet,
+        )
 
-    record_check(state, updated=updated, message=message)
+    record_check(
+        state,
+        updated=updated,
+        message=message,
+        version=current_version,
+        changelog_summary=changelog_summary,
+    )
     if not args.quiet or updated:
         print(message)
+        if changelog_summary:
+            print()
+            print(changelog_summary)
     return 0
 
 

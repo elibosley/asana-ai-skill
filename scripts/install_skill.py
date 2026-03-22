@@ -17,6 +17,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LOCAL_STATE_DIR = Path.home() / ".agent-skills" / "asana"
 LEGACY_LOCAL_STATE_DIR = Path.home() / ".codex" / "skills-data" / "asana"
+VERSION_FILE = REPO_ROOT / "VERSION"
 DEFAULT_DESTS = {
     "codex": Path.home() / ".codex" / "skills" / "asana",
     "claude": Path.home() / ".claude" / "skills" / "asana",
@@ -162,6 +163,7 @@ def selected_targets(agent: str, explicit_dest: str | None) -> list[tuple[str, P
 
 
 def write_next_steps(installed: list[tuple[str, Path, Path]], mode: str) -> None:
+    current_version = VERSION_FILE.read_text().strip() if VERSION_FILE.exists() else "unknown"
     for agent, install_path, source_path in installed:
         if install_path == source_path:
             print(f"Installed Asana skill for {agent} at {install_path} using {mode} mode.")
@@ -170,6 +172,7 @@ def write_next_steps(installed: list[tuple[str, Path, Path]], mode: str) -> None
                 f"Installed Asana skill for {agent} at {install_path} -> {source_path} "
                 f"using {mode} mode."
             )
+    print(f"Current skill version: v{current_version}")
     print("Next steps:")
     print("1. Add your PAT to ASANA_ACCESS_TOKEN or ~/.agent-skills/asana/asana_pat.")
     print("2. Copy asana-context.example.json to ~/.agent-skills/asana/asana-context.json.")
