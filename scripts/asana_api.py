@@ -19,6 +19,7 @@ import os
 import re
 import sys
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
@@ -34,6 +35,9 @@ LEGACY_TOKEN_FILE = SKILL_DIR / ".secrets" / "asana_pat"
 DEFAULT_CONTEXT_FILE = LOCAL_STATE_DIR / "asana-context.json"
 LEGACY_SHARED_CONTEXT_FILE = LEGACY_LOCAL_STATE_DIR / "asana-context.json"
 LEGACY_CONTEXT_FILE = SKILL_DIR / "asana-context.json"
+DEFAULT_CACHE_FILE = LOCAL_STATE_DIR / "asana-cache.json"
+LEGACY_SHARED_CACHE_FILE = LEGACY_LOCAL_STATE_DIR / "asana-cache.json"
+LEGACY_CACHE_FILE = SKILL_DIR / ".cache" / "asana-cache.json"
 
 
 def token_file() -> Path:
@@ -58,11 +62,180 @@ def context_file() -> Path:
     return LEGACY_CONTEXT_FILE
 
 
+def cache_file() -> Path:
+    configured = os.environ.get("ASANA_CACHE_FILE")
+    if configured:
+        return Path(configured).expanduser()
+    if DEFAULT_CACHE_FILE.exists():
+        return DEFAULT_CACHE_FILE
+    if LEGACY_SHARED_CACHE_FILE.exists():
+        return LEGACY_SHARED_CACHE_FILE
+    if LEGACY_CACHE_FILE.exists():
+        return LEGACY_CACHE_FILE
+    return DEFAULT_CACHE_FILE
+
+
 def load_context() -> dict[str, Any]:
     file_path = context_file()
     if not file_path.exists():
         return {}
     return json.loads(file_path.read_text())
+
+
+def empty_cache() -> dict[str, Any]:
+    return {
+        "metadata": {"updated_at": None},
+        "workspaces": {"by_gid": {}},
+        "teams": {"by_gid": {}},
+        "projects": {"by_gid": {}},
+        "users": {"by_gid": {}},
+        "tags": {"by_gid": {}},
+    }
+
+
+def ensure_cache_shape(cache: dict[str, Any]) -> dict[str, Any]:
+    cache.setdefault("metadata", {})
+    for bucket_name in ("workspaces", "teams", "projects", "users", "tags"):
+        bucket = cache.setdefault(bucket_name, {})
+        if not isinstance(bucket, dict):
+            cache[bucket_name] = {"by_gid": {}}
+            continue
+        bucket.setdefault("by_gid", {})
+        if not isinstance(bucket["by_gid"], dict):
+            bucket["by_gid"] = {}
+    return cache
+
+
+def load_cache() -> dict[str, Any]:
+    file_path = cache_file()
+    if not file_path.exists():
+        return empty_cache()
+    return ensure_cache_shape(json.loads(file_path.read_text()))
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def save_cache(cache: dict[str, Any]) -> Path:
+    file_path = cache_file()
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    normalized = ensure_cache_shape(cache)
+    normalized["metadata"]["updated_at"] = now_iso()
+    file_path.write_text(f"{json.dumps(normalized, indent=2, sort_keys=True)}\n")
+    return file_path
+
+
+def cache_bucket(cache: dict[str, Any], bucket_name: str) -> dict[str, Any]:
+    return ensure_cache_shape(cache).setdefault(bucket_name, {"by_gid": {}})
+
+
+def cache_record(cache: dict[str, Any], bucket_name: str, record: dict[str, Any]) -> None:
+    gid = str(record.get("gid") or "").strip()
+    if not gid:
+        return
+    bucket = cache_bucket(cache, bucket_name)
+    existing = bucket["by_gid"].get(gid, {})
+    merged = dict(existing)
+    merged.update({key: value for key, value in record.items() if value is not None})
+    merged["cached_at"] = now_iso()
+    bucket["by_gid"][gid] = merged
+
+
+def cache_records(cache: dict[str, Any], bucket_name: str, records: list[dict[str, Any]]) -> None:
+    for record in records:
+        if isinstance(record, dict):
+            cache_record(cache, bucket_name, record)
+
+
+def normalize_match_key(value: str | None) -> str:
+    return str(value or "").strip().casefold()
+
+
+def is_gid_like(value: str | None) -> bool:
+    token = str(value or "").strip()
+    return bool(token) and token.isdigit()
+
+
+def find_cached_record(
+    cache: dict[str, Any],
+    bucket_name: str,
+    identifier: str | None,
+    *,
+    fields: tuple[str, ...],
+) -> dict[str, Any] | None:
+    token = str(identifier or "").strip()
+    if not token:
+        return None
+    if is_gid_like(token):
+        return cache_bucket(cache, bucket_name)["by_gid"].get(token)
+
+    lowered = normalize_match_key(token)
+    matches: list[dict[str, Any]] = []
+    for record in cache_bucket(cache, bucket_name)["by_gid"].values():
+        if not isinstance(record, dict):
+            continue
+        if any(normalize_match_key(record.get(field)) == lowered for field in fields):
+            matches.append(record)
+
+    if not matches:
+        return None
+    unique_matches: dict[str, dict[str, Any]] = {}
+    for record in matches:
+        gid = str(record.get("gid") or "").strip()
+        if gid:
+            unique_matches[gid] = record
+    if len(unique_matches) == 1:
+        return next(iter(unique_matches.values()))
+    match_list = ", ".join(
+        f"{record.get('name', record.get('gid'))} ({record.get('gid')})"
+        for record in unique_matches.values()
+    )
+    raise SystemExit(f"Ambiguous cached {bucket_name[:-1]} identifier '{token}': {match_list}")
+
+
+def user_cache_record(user: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "gid": user.get("gid"),
+        "name": user.get("name"),
+        "email": user.get("email"),
+    }
+
+
+def workspace_cache_record(workspace: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "gid": workspace.get("gid"),
+        "name": workspace.get("name"),
+    }
+
+
+def team_cache_record(team: dict[str, Any], *, workspace_gid: str | None = None) -> dict[str, Any]:
+    return {
+        "gid": team.get("gid"),
+        "name": team.get("name"),
+        "workspace_gid": workspace_gid,
+    }
+
+
+def project_cache_record(project: dict[str, Any], *, team_gid: str | None = None) -> dict[str, Any]:
+    team = project.get("team") if isinstance(project.get("team"), dict) else {}
+    owner = project.get("owner") if isinstance(project.get("owner"), dict) else {}
+    return {
+        "gid": project.get("gid"),
+        "name": project.get("name"),
+        "team_gid": team.get("gid") or team_gid,
+        "team_name": team.get("name"),
+        "owner_gid": owner.get("gid"),
+        "owner_name": owner.get("name"),
+    }
+
+
+def tag_cache_record(tag: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "gid": tag.get("gid"),
+        "name": tag.get("name"),
+        "color": tag.get("color"),
+    }
 
 
 def get_token(args: argparse.Namespace) -> str:
@@ -328,16 +501,28 @@ def field_list(csv_fields: str) -> list[str]:
     return [field.strip() for field in csv_fields.split(",") if field.strip()]
 
 
-def workspace_default(args: argparse.Namespace, context: dict[str, Any]) -> str | None:
+def workspace_default(
+    args: argparse.Namespace,
+    context: dict[str, Any],
+    cache: dict[str, Any] | None = None,
+) -> str | None:
     value = getattr(args, "workspace", None) or context.get("workspace_gid")
     if not value:
         return None
     if value == context.get("workspace_name"):
         return context.get("workspace_gid")
+    if cache:
+        record = find_cached_record(cache, "workspaces", value, fields=("name",))
+        if record:
+            return str(record.get("gid"))
     return value
 
 
-def team_default(args: argparse.Namespace, context: dict[str, Any]) -> str | None:
+def team_default(
+    args: argparse.Namespace,
+    context: dict[str, Any],
+    cache: dict[str, Any] | None = None,
+) -> str | None:
     value = getattr(args, "team", None) or context.get("team_gid")
     if not value:
         return None
@@ -348,7 +533,45 @@ def team_default(args: argparse.Namespace, context: dict[str, Any]) -> str | Non
     for gid, name in teams.items():
         if str(name).casefold() == lowered:
             return gid
+    if cache:
+        record = find_cached_record(cache, "teams", value, fields=("name",))
+        if record:
+            return str(record.get("gid"))
     return value
+
+
+def resolve_user_identifier(
+    value: str | None,
+    context: dict[str, Any],
+    cache: dict[str, Any] | None = None,
+) -> str | None:
+    token = str(value or "").strip()
+    if not token:
+        return None
+    if token == "me":
+        return context.get("user_gid") or "me"
+    if token == context.get("user_name") or token == context.get("user_gid"):
+        return context.get("user_gid") or token
+    if is_gid_like(token):
+        return token
+    if cache:
+        record = find_cached_record(cache, "users", token, fields=("name", "email"))
+        if record:
+            return str(record.get("gid"))
+    return token
+
+
+def resolve_many_user_identifiers(
+    values: list[str] | None,
+    context: dict[str, Any],
+    cache: dict[str, Any] | None = None,
+) -> list[str]:
+    resolved: list[str] = []
+    for item in parse_many_gid(values):
+        user_gid = resolve_user_identifier(item, context, cache)
+        if user_gid:
+            resolved.append(user_gid)
+    return resolved
 
 
 def add_common_output_flags(parser: argparse.ArgumentParser) -> None:
@@ -485,6 +708,16 @@ def command_whoami(args: argparse.Namespace) -> Any:
         path_or_url="/users/me",
         query={"opt_fields": "gid,name,email,workspaces.name"},
     )
+    cache = load_cache()
+    user = response.get("data", {})
+    if isinstance(user, dict):
+        cache_record(cache, "users", user_cache_record(user))
+        workspaces = user.get("workspaces", [])
+        if isinstance(workspaces, list):
+            cache_records(cache, "workspaces", [workspace_cache_record(item) for item in workspaces if isinstance(item, dict)])
+        cache["metadata"]["current_user_gid"] = user.get("gid")
+        cache["metadata"]["current_user_name"] = user.get("name")
+        save_cache(cache)
     print_json(response, args.compact)
     return response
 
@@ -496,6 +729,11 @@ def command_workspaces(args: argparse.Namespace) -> Any:
         method="GET",
         path_or_url="/users/me/workspaces",
     )
+    cache = load_cache()
+    workspaces = response.get("data", [])
+    if isinstance(workspaces, list):
+        cache_records(cache, "workspaces", [workspace_cache_record(item) for item in workspaces if isinstance(item, dict)])
+        save_cache(cache)
     print_json(response, args.compact)
     return response
 
@@ -503,7 +741,8 @@ def command_workspaces(args: argparse.Namespace) -> Any:
 def command_teams(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
-    workspace = workspace_default(args, context)
+    cache = load_cache()
+    workspace = workspace_default(args, context, cache)
     if not workspace:
         raise SystemExit("No workspace GID provided and no default workspace in asana-context.json")
     response = api_request(
@@ -511,6 +750,14 @@ def command_teams(args: argparse.Namespace) -> Any:
         method="GET",
         path_or_url=f"/workspaces/{workspace}/teams",
     )
+    teams = response.get("data", [])
+    if isinstance(teams, list):
+        cache_records(
+            cache,
+            "teams",
+            [team_cache_record(item, workspace_gid=workspace) for item in teams if isinstance(item, dict)],
+        )
+        save_cache(cache)
     print_json(response, args.compact)
     return response
 
@@ -518,7 +765,8 @@ def command_teams(args: argparse.Namespace) -> Any:
 def command_projects(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
-    team = team_default(args, context)
+    cache = load_cache()
+    team = team_default(args, context, cache)
     if not team:
         raise SystemExit("No team GID provided and no default team in asana-context.json")
     response = api_request(
@@ -526,6 +774,14 @@ def command_projects(args: argparse.Namespace) -> Any:
         method="GET",
         path_or_url=f"/teams/{team}/projects",
     )
+    projects = response.get("data", [])
+    if isinstance(projects, list):
+        cache_records(
+            cache,
+            "projects",
+            [project_cache_record(item, team_gid=team) for item in projects if isinstance(item, dict)],
+        )
+        save_cache(cache)
     print_json(response, args.compact)
     return response
 
@@ -533,7 +789,8 @@ def command_projects(args: argparse.Namespace) -> Any:
 def command_users(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
-    workspace = workspace_default(args, context)
+    cache = load_cache()
+    workspace = workspace_default(args, context, cache)
     if not workspace:
         raise SystemExit("No workspace GID provided and no default workspace in asana-context.json")
     response = api_request(
@@ -543,6 +800,10 @@ def command_users(args: argparse.Namespace) -> Any:
         query={"opt_fields": args.opt_fields or "gid,name,email"},
     )
     response = maybe_paginate(token, response, args.paginate, args.limit_pages)
+    users = response.get("data", [])
+    if isinstance(users, list):
+        cache_records(cache, "users", [user_cache_record(item) for item in users if isinstance(item, dict)])
+        save_cache(cache)
     print_json(response, args.compact)
     return response
 
@@ -575,6 +836,11 @@ def command_project(args: argparse.Namespace) -> Any:
             "default_view,created_at,permalink_url,notes",
         },
     )
+    cache = load_cache()
+    project = response.get("data", {})
+    if isinstance(project, dict):
+        cache_record(cache, "projects", project_cache_record(project))
+        save_cache(cache)
     print_json(response, args.compact)
     return response
 
@@ -941,18 +1207,22 @@ def command_remove_task_project(args: argparse.Namespace) -> Any:
 
 
 def command_add_task_followers(args: argparse.Namespace) -> Any:
+    context = load_context()
+    cache = load_cache()
     return post_task_relationship(
         args,
         f"/tasks/{args.task_gid}/addFollowers",
-        {"followers": parse_many_gid(args.followers)},
+        {"followers": resolve_many_user_identifiers(args.followers, context, cache)},
     )
 
 
 def command_remove_task_followers(args: argparse.Namespace) -> Any:
+    context = load_context()
+    cache = load_cache()
     return post_task_relationship(
         args,
         f"/tasks/{args.task_gid}/removeFollowers",
-        {"followers": parse_many_gid(args.followers)},
+        {"followers": resolve_many_user_identifiers(args.followers, context, cache)},
     )
 
 
@@ -971,7 +1241,8 @@ def command_task_tags(args: argparse.Namespace) -> Any:
 def command_tags(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
-    workspace = workspace_default(args, context)
+    cache = load_cache()
+    workspace = workspace_default(args, context, cache)
     if not workspace:
         raise SystemExit("No workspace GID provided and no default workspace in asana-context.json")
     response = api_request(
@@ -981,6 +1252,10 @@ def command_tags(args: argparse.Namespace) -> Any:
         query={"opt_fields": args.opt_fields or tag_opt_fields("gid,name,color")},
     )
     response = maybe_paginate(token, response, args.paginate, args.limit_pages)
+    tags = response.get("data", [])
+    if isinstance(tags, list):
+        cache_records(cache, "tags", [tag_cache_record(item) for item in tags if isinstance(item, dict)])
+        save_cache(cache)
     print_json(response, args.compact)
     return response
 
@@ -988,7 +1263,8 @@ def command_tags(args: argparse.Namespace) -> Any:
 def command_workspace_custom_fields(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
-    workspace = workspace_default(args, context)
+    cache = load_cache()
+    workspace = workspace_default(args, context, cache)
     if not workspace:
         raise SystemExit("No workspace GID provided and no default workspace in asana-context.json")
     response = api_request(
@@ -1005,7 +1281,8 @@ def command_workspace_custom_fields(args: argparse.Namespace) -> Any:
 def command_team_custom_fields(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
-    team = team_default(args, context)
+    cache = load_cache()
+    team = team_default(args, context, cache)
     if not team:
         raise SystemExit("No team GID provided and no default team in asana-context.json")
     response = api_request(
@@ -1056,7 +1333,8 @@ def command_task_custom_fields(args: argparse.Namespace) -> Any:
 def command_create_custom_field(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
-    workspace = workspace_default(args, context)
+    cache = load_cache()
+    workspace = workspace_default(args, context, cache)
     if not workspace:
         raise SystemExit("No workspace GID provided and no default workspace in asana-context.json")
     payload: dict[str, Any] = {
@@ -1103,7 +1381,8 @@ def command_batch(args: argparse.Namespace) -> Any:
 def command_create_tag(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
-    workspace = workspace_default(args, context)
+    cache = load_cache()
+    workspace = workspace_default(args, context, cache)
     if not workspace:
         raise SystemExit("No workspace GID provided and no default workspace in asana-context.json")
     payload: dict[str, Any] = {"workspace": workspace, "name": args.name}
@@ -1156,7 +1435,8 @@ def command_remove_task_dependencies(args: argparse.Namespace) -> Any:
 def command_search_tasks(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
-    workspace = workspace_default(args, context)
+    cache = load_cache()
+    workspace = workspace_default(args, context, cache)
     if not workspace:
         raise SystemExit("No workspace GID provided and no default workspace in asana-context.json")
 
@@ -1167,7 +1447,7 @@ def command_search_tasks(args: argparse.Namespace) -> Any:
     }
     optional_values = {
         "projects.any": args.project,
-        "assignee.any": args.assignee,
+        "assignee.any": resolve_user_identifier(args.assignee, context, cache),
         "completed": str(args.completed).lower() if args.completed is not None else None,
     }
     for key, value in optional_values.items():
@@ -1181,6 +1461,16 @@ def command_search_tasks(args: argparse.Namespace) -> Any:
         query=query,
     )
     response = maybe_paginate(token, response, args.paginate, args.limit_pages)
+    tasks = response.get("data", [])
+    if isinstance(tasks, list):
+        assignees = [
+            user_cache_record(task["assignee"])
+            for task in tasks
+            if isinstance(task, dict) and isinstance(task.get("assignee"), dict)
+        ]
+        if assignees:
+            cache_records(cache, "users", assignees)
+            save_cache(cache)
     print_json(response, args.compact)
     return response
 
@@ -1215,13 +1505,12 @@ def fetch_parent_task_context_map(token: str, parent_gids: list[str]) -> dict[st
 def command_project_assigned_tasks(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
-    workspace = workspace_default(args, context)
+    cache = load_cache()
+    workspace = workspace_default(args, context, cache)
     if not workspace:
         raise SystemExit("No workspace GID provided and no default workspace in asana-context.json")
 
-    assignee = args.assignee or context.get("user_gid") or "me"
-    if assignee == "me" and context.get("user_gid"):
-        assignee = context["user_gid"]
+    assignee = resolve_user_identifier(args.assignee or context.get("user_gid") or "me", context, cache)
 
     query: dict[str, str] = {
         "projects.any": args.project_gid,
@@ -1280,22 +1569,39 @@ def command_project_assigned_tasks(args: argparse.Namespace) -> Any:
     payload["assignee"] = assignee
     payload["includes_subtasks"] = True
     payload["subtask_count"] = sum(1 for task in enriched_tasks if isinstance(task, dict) and task.get("is_subtask"))
+    assignees = [
+        user_cache_record(task["assignee"])
+        for task in enriched_tasks
+        if isinstance(task, dict) and isinstance(task.get("assignee"), dict)
+    ]
+    if assignees:
+        cache_records(cache, "users", assignees)
+        save_cache(cache)
     print_json(payload, args.compact)
     return payload
 
 
-def build_task_payload(args: argparse.Namespace, context: dict[str, Any], is_create: bool) -> dict[str, Any]:
+def build_task_payload(
+    args: argparse.Namespace,
+    context: dict[str, Any],
+    cache: dict[str, Any],
+    is_create: bool,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {}
-    for attr in ("name", "notes", "html_notes", "assignee", "due_on", "due_at"):
+    for attr in ("name", "notes", "html_notes", "due_on", "due_at"):
         value = getattr(args, attr, None)
         if value:
             payload[attr] = value
+
+    assignee = resolve_user_identifier(getattr(args, "assignee", None), context, cache)
+    if assignee:
+        payload["assignee"] = assignee
 
     if getattr(args, "completed", None) is not None:
         payload["completed"] = args.completed
 
     project = getattr(args, "project", None)
-    workspace = workspace_default(args, context)
+    workspace = workspace_default(args, context, cache)
     parent = getattr(args, "parent", None)
 
     if project:
@@ -1325,13 +1631,18 @@ def parse_custom_fields(items: list[str]) -> dict[str, Any]:
 def command_create_task(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
-    payload = build_task_payload(args, context, is_create=True)
+    cache = load_cache()
+    payload = build_task_payload(args, context, cache, is_create=True)
     response = api_request(
         token=token,
         method="POST",
         path_or_url="/tasks",
         json_body={"data": payload},
     )
+    task = response.get("data", {})
+    if isinstance(task, dict) and isinstance(task.get("assignee"), dict):
+        cache_record(cache, "users", user_cache_record(task["assignee"]))
+        save_cache(cache)
     print_json(response, args.compact)
     return response
 
@@ -1339,13 +1650,18 @@ def command_create_task(args: argparse.Namespace) -> Any:
 def command_update_task(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
-    payload = build_task_payload(args, context, is_create=False)
+    cache = load_cache()
+    payload = build_task_payload(args, context, cache, is_create=False)
     response = api_request(
         token=token,
         method="PUT",
         path_or_url=f"/tasks/{args.task_gid}",
         json_body={"data": payload},
     )
+    task = response.get("data", {})
+    if isinstance(task, dict) and isinstance(task.get("assignee"), dict):
+        cache_record(cache, "users", user_cache_record(task["assignee"]))
+        save_cache(cache)
     print_json(response, args.compact)
     return response
 
@@ -1379,12 +1695,13 @@ def command_update_story(args: argparse.Namespace) -> Any:
 def command_create_project(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
-    team = team_default(args, context)
+    cache = load_cache()
+    team = team_default(args, context, cache)
     payload = {"name": args.name}
     if team:
         payload["team"] = team
-    elif workspace_default(args, context):
-        payload["workspace"] = workspace_default(args, context)
+    elif workspace_default(args, context, cache):
+        payload["workspace"] = workspace_default(args, context, cache)
     if args.notes:
         payload["notes"] = args.notes
 
@@ -1394,12 +1711,17 @@ def command_create_project(args: argparse.Namespace) -> Any:
         path_or_url="/projects",
         json_body={"data": payload},
     )
+    project = response.get("data", {})
+    if isinstance(project, dict):
+        cache_record(cache, "projects", project_cache_record(project, team_gid=team))
+        save_cache(cache)
     print_json(response, args.compact)
     return response
 
 
 def command_update_project(args: argparse.Namespace) -> Any:
     token = get_token(args)
+    cache = load_cache()
     payload = {"name": args.name} if args.name else {}
     if args.notes:
         payload["notes"] = args.notes
@@ -1411,12 +1733,22 @@ def command_update_project(args: argparse.Namespace) -> Any:
         path_or_url=f"/projects/{args.project_gid}",
         json_body={"data": payload},
     )
+    project = response.get("data", {})
+    if isinstance(project, dict):
+        cache_record(cache, "projects", project_cache_record(project))
+        save_cache(cache)
     print_json(response, args.compact)
     return response
 
 
 def command_show_context(args: argparse.Namespace) -> Any:
     response = load_context()
+    print_json(response, args.compact)
+    return response
+
+
+def command_show_cache(args: argparse.Namespace) -> Any:
+    response = load_cache()
     print_json(response, args.compact)
     return response
 
@@ -1532,7 +1864,7 @@ def build_parser() -> argparse.ArgumentParser:
     project_assigned_parser.add_argument("--workspace", help="Workspace GID override")
     project_assigned_parser.add_argument(
         "--assignee",
-        help="Assignee filter, defaults to the current user from asana-context.json",
+        help="Assignee filter, defaults to the current user from asana-context.json; accepts gid, exact cached name, or exact cached email",
     )
     project_assigned_parser.add_argument("--completed", type=parse_bool, help="Filter by completion")
     project_assigned_parser.add_argument("--opt-fields", help="Override result fields")
@@ -1577,7 +1909,7 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("--text", required=True, help="Search text")
     search_parser.add_argument("--workspace", help="Workspace GID override")
     search_parser.add_argument("--project", help="Project GID filter")
-    search_parser.add_argument("--assignee", help="Assignee filter, e.g. me or user gid")
+    search_parser.add_argument("--assignee", help="Assignee filter, e.g. me, user gid, exact cached user name, or exact cached email")
     search_parser.add_argument("--completed", type=parse_bool, help="Filter by completion")
     search_parser.add_argument("--opt-fields", help="Override result fields")
     search_parser.add_argument("--paginate", action="store_true", help="Follow Asana next_page links")
@@ -1590,7 +1922,7 @@ def build_parser() -> argparse.ArgumentParser:
     create_task_parser.add_argument("--workspace", help="Workspace GID override")
     create_task_parser.add_argument("--project", help="Project GID")
     create_task_parser.add_argument("--parent", help="Parent task GID")
-    create_task_parser.add_argument("--assignee", help="Assignee gid or me")
+    create_task_parser.add_argument("--assignee", help="Assignee gid, me, exact cached user name, or exact cached email")
     create_task_parser.add_argument("--notes")
     create_task_parser.add_argument("--html-notes")
     create_task_parser.add_argument("--due-on")
@@ -1602,7 +1934,7 @@ def build_parser() -> argparse.ArgumentParser:
     update_task_parser = subparsers.add_parser("update-task", help="Update a task")
     update_task_parser.add_argument("task_gid")
     update_task_parser.add_argument("--name")
-    update_task_parser.add_argument("--assignee")
+    update_task_parser.add_argument("--assignee", help="Assignee gid, me, exact cached user name, or exact cached email")
     update_task_parser.add_argument("--notes")
     update_task_parser.add_argument("--html-notes")
     update_task_parser.add_argument("--due-on")
@@ -1669,13 +2001,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     add_task_followers_parser = subparsers.add_parser("add-task-followers", help="Add followers to a task")
     add_task_followers_parser.add_argument("task_gid")
-    add_task_followers_parser.add_argument("followers", nargs="+", help="Follower gids or me; comma-separated values allowed")
+    add_task_followers_parser.add_argument("followers", nargs="+", help="Follower gids, me, exact cached user names/emails; comma-separated values allowed")
     add_common_output_flags(add_task_followers_parser)
     add_task_followers_parser.set_defaults(func=command_add_task_followers)
 
     remove_task_followers_parser = subparsers.add_parser("remove-task-followers", help="Remove followers from a task")
     remove_task_followers_parser.add_argument("task_gid")
-    remove_task_followers_parser.add_argument("followers", nargs="+", help="Follower gids or me; comma-separated values allowed")
+    remove_task_followers_parser.add_argument("followers", nargs="+", help="Follower gids, me, exact cached user names/emails; comma-separated values allowed")
     add_common_output_flags(remove_task_followers_parser)
     remove_task_followers_parser.set_defaults(func=command_remove_task_followers)
 
@@ -1792,6 +2124,10 @@ def build_parser() -> argparse.ArgumentParser:
     context_parser = subparsers.add_parser("show-context", help="Print local workspace/team defaults")
     add_common_output_flags(context_parser)
     context_parser.set_defaults(func=command_show_context)
+
+    cache_parser = subparsers.add_parser("show-cache", help="Print the local Asana entity cache")
+    add_common_output_flags(cache_parser)
+    cache_parser.set_defaults(func=command_show_cache)
 
     return parser
 

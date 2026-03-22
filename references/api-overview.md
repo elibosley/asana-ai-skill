@@ -14,6 +14,7 @@
 - Auth header: `Authorization: Bearer <PAT>`
 - The local helper reads the PAT from `ASANA_ACCESS_TOKEN`, then from `~/.agent-skills/asana/asana_pat`, then the legacy `~/.codex/skills-data/asana/asana_pat`, and finally from the legacy in-skill `.secrets/asana_pat` unless `ASANA_TOKEN_FILE` is set.
 - Workspace and team defaults can be stored in `~/.agent-skills/asana/asana-context.json` unless `ASANA_CONTEXT_FILE` is set.
+- The helper also maintains a local entity cache at `~/.agent-skills/asana/asana-cache.json` unless `ASANA_CACHE_FILE` is set. The cache stores workspaces, teams, projects, users, and tags discovered by common read commands so later commands can reuse gids without extra lookups.
 
 ## Request shape
 
@@ -38,6 +39,7 @@ The helper wraps JSON payloads in `data` automatically unless you pass `--no-wra
 - List endpoints may return `next_page`; use `--paginate` in the helper to follow it.
 - For broad task lookup, prefer `GET /workspaces/{workspace_gid}/tasks/search`.
 - For "assigned work in a project" pulls, prefer workspace search with `projects.any=<project_gid>` and `assignee.any=<user_gid>` over `GET /projects/{project_gid}/tasks`, because search results include matching subtasks while project task lists are top-level only.
+- Cached exact user names and emails can be resolved back to gids for helper commands that accept assignees or followers.
 
 ## Common endpoint map
 

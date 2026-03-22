@@ -19,7 +19,10 @@ Identify the current user and workspaces:
 python3 scripts/asana_api.py whoami
 python3 scripts/asana_api.py workspaces
 python3 scripts/asana_api.py workspace-custom-fields
+python3 scripts/asana_api.py show-cache
 ```
+
+These commands also refresh the local cache at `~/.agent-skills/asana/asana-cache.json`, which stores discovered workspaces, teams, projects, users, and tags for later resolution.
 
 List teams in the default workspace:
 
@@ -75,7 +78,10 @@ Search tasks in a workspace:
 
 ```bash
 python3 scripts/asana_api.py search-tasks --text "homepage" --project <project_gid>
+python3 scripts/asana_api.py search-tasks --text "homepage" --project <project_gid> --assignee "Eli Bosley"
 ```
+
+After `users` has been run at least once, commands that accept assignees or followers can resolve exact cached user names or emails in addition to raw gids and `me`.
 
 ## Write operations
 

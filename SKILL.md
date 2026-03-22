@@ -17,7 +17,8 @@ Use it when you need to inspect or mutate Asana objects directly from an AI codi
 - API helper: `scripts/asana_api.py`
 - Preferred token file: `~/.agent-skills/asana/asana_pat`
 - Preferred defaults/context file: `~/.agent-skills/asana/asana-context.json`
-- Overrides: `ASANA_TOKEN_FILE` and `ASANA_CONTEXT_FILE`
+- Preferred cache file: `~/.agent-skills/asana/asana-cache.json`
+- Overrides: `ASANA_TOKEN_FILE`, `ASANA_CONTEXT_FILE`, and `ASANA_CACHE_FILE`
 
 The helper reads the PAT from `ASANA_ACCESS_TOKEN` first, then falls back to the shared local token file, then the legacy `~/.codex/skills-data/asana/asana_pat` path, and finally to the legacy in-skill `.secrets/asana_pat` path.
 
@@ -30,15 +31,17 @@ The helper reads the PAT from `ASANA_ACCESS_TOKEN` first, then falls back to the
 5. When you need to plan work from a single Asana ticket, prefer `task-bundle` first because it pulls task fields, comments, attachments, and project workflow context together in one call.
 6. When you need assigned work inside a project, prefer `project-assigned-tasks` over `project-tasks`. It searches the workspace by project + assignee, includes matching subtasks, and enriches subtasks with parent section context when the subtask itself has no direct project membership.
 7. Do not rely on `project-tasks` alone for "my tasks in project" pulls. Asana project task lists can miss assigned subtasks that still matter for implementation work.
-8. For writes, inspect the current object first unless the user already provided the exact target GID and desired mutation.
-9. Prefer task/project comments (`stories`) for status notes instead of overwriting task descriptions unless the user asked for that.
-10. Treat section names and section order as raw workflow context. Do not assume a given column means “done” unless the user or surrounding project context says so.
-11. For any AI-authored comment or AI-authored task-note update, begin the message with the heading `AI MESSAGE DISCLAIMER`.
-12. Use rich-text HTML fields for AI-authored updates whenever formatting matters:
+8. The helper now keeps a local entity cache for workspaces, teams, projects, users, and tags. Commands like `whoami`, `workspaces`, `teams`, `projects`, `users`, `tags`, and `project-assigned-tasks` refresh that cache automatically.
+9. When a command accepts a user identifier such as `--assignee` or follower values, prefer exact gids when you already have them, but cached exact user names and emails now work too.
+10. For writes, inspect the current object first unless the user already provided the exact target GID and desired mutation.
+11. Prefer task/project comments (`stories`) for status notes instead of overwriting task descriptions unless the user asked for that.
+12. Treat section names and section order as raw workflow context. Do not assume a given column means “done” unless the user or surrounding project context says so.
+13. For any AI-authored comment or AI-authored task-note update, begin the message with the heading `AI MESSAGE DISCLAIMER`.
+14. Use rich-text HTML fields for AI-authored updates whenever formatting matters:
    - Task comments/stories: `html_text`
    - Task descriptions/notes: `html_notes`
-13. Do not paste Markdown-style bullets or escaped `\n` sequences into plain `text` fields when the message needs headings, lists, or paragraphs. Prefer proper HTML structure.
-14. Before posting or updating an AI-authored message, sanity-check how it will render in Asana: use paragraphs, `<strong>` for labels, and `<ul><li>` for lists rather than relying on Markdown.
+15. Do not paste Markdown-style bullets or escaped `\n` sequences into plain `text` fields when the message needs headings, lists, or paragraphs. Prefer proper HTML structure.
+16. Before posting or updating an AI-authored message, sanity-check how it will render in Asana: use paragraphs, `<strong>` for labels, and `<ul><li>` for lists rather than relying on Markdown.
 
 ## AI Message Format
 
@@ -73,6 +76,7 @@ python3 scripts/asana_api.py whoami
 python3 scripts/asana_api.py workspaces
 python3 scripts/asana_api.py teams
 python3 scripts/asana_api.py users
+python3 scripts/asana_api.py show-cache
 python3 scripts/asana_api.py workspace-custom-fields
 python3 scripts/asana_api.py projects --team <team_gid>
 python3 scripts/asana_api.py project-tasks <project_gid>
@@ -86,7 +90,8 @@ python3 scripts/asana_api.py task-stories <task_gid>
 python3 scripts/asana_api.py task-comments <task_gid>
 python3 scripts/asana_api.py task-custom-fields <task_gid>
 python3 scripts/asana_api.py create-task --name "Follow up" --project <project_gid>
-python3 scripts/asana_api.py update-task <task_gid> --completed true
+python3 scripts/asana_api.py create-task --name "Follow up" --project <project_gid> --assignee "Eli Bosley"
+python3 scripts/asana_api.py update-task <task_gid> --completed true --assignee "eli@example.com"
 python3 scripts/asana_api.py comment-task <task_gid> --text "Status update"
 python3 scripts/asana_api.py create-section <project_gid> --name "Ready"
 python3 scripts/asana_api.py add-task-followers <task_gid> me
