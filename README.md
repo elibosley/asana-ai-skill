@@ -2,7 +2,45 @@
 
 Portable Asana skill for Codex-style agents. The repo contains the skill itself, a local installer, and setup instructions that keep tokens out of git.
 
-## What is included
+## Start Here
+
+If you are a non-technical Asana admin, start here.
+
+1. Sign in to [Asana](https://app.asana.com/).
+2. Create a personal access token from profile photo -> `Settings` -> `Apps` -> `View developer console` -> `Personal access tokens` -> `Create new token`.
+3. Save that token to `~/.codex/skills-data/asana/asana_pat`.
+4. Run:
+
+```bash
+python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py
+```
+
+That bootstrap step installs the skill, creates local storage, builds your Asana context automatically, and verifies access.
+
+If you want your AI tool to do almost all of this for you, paste this:
+
+```text
+Set up the private `asana` skill for me from `Unraid/asana-codex-skill` with as little manual work as possible.
+
+Requirements:
+- If `~/Code/asana-codex-skill` does not exist, clone the repo there. If it does exist, update it safely.
+- Confirm `python3` is available and do not add any pip dependencies unless they are actually needed
+- Run `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py`
+- Keep secrets out of git
+- Install the skill into `~/.codex/skills/asana`
+- Enable the built-in auto-update path
+- Use `~/.codex/skills-data/asana/` for token and context storage
+- If `~/.codex/skills-data/asana/asana_pat` is missing, walk me through signing into Asana and creating one:
+  sign in to `https://app.asana.com/`, then go to profile photo -> `Settings` -> `Apps` -> `View developer console` -> `Personal access tokens` -> `Create new token`
+- Explain that the token is shown once and should be saved immediately
+- Save the token to `~/.codex/skills-data/asana/asana_pat` with safe file permissions
+- After the token is in place, rerun the bootstrap script so it can auto-build `asana-context.json`
+- Verify the install by running `python3 ~/Code/asana-codex-skill/scripts/asana_api.py whoami`
+- Verify the updater by running `python3 ~/Code/asana-codex-skill/scripts/update_skill.py --force`
+- Never print the token in output
+```
+
+## What Is Included
 
 - `SKILL.md` plus `agents/openai.yaml`
 - `scripts/asana_api.py` with only Python standard-library dependencies
@@ -19,7 +57,7 @@ Portable Asana skill for Codex-style agents. The repo contains the skill itself,
 
 No `pip install` step is required.
 
-## Best install path for maintainers
+## Maintainer Setup
 
 Clone this repo into `~/Code/asana-codex-skill`, then run:
 
@@ -29,7 +67,7 @@ python3 scripts/bootstrap_skill.py
 
 That installs the skill, creates the local state directory, refreshes the repo when safe, and auto-builds `asana-context.json` if a token is already present.
 
-## Best install path for admins
+## Admin Setup
 
 For non-technical admins, the bootstrap script is the main entry point:
 
@@ -72,31 +110,6 @@ It supports two cases:
 - Copy install: bootstraps a managed clone under `~/.codex/skill-sources/asana-codex-skill`, then switches `~/.codex/skills/asana` to that tracked checkout
 
 The skill can also call the updater in best-effort mode during normal use, with a built-in interval gate so it does not hit the network every single invocation.
-
-## Single copy-paste AI prompt
-
-Paste this into your AI tool instead of asking people to run raw setup commands:
-
-```text
-Set up the private `asana` skill for me from `Unraid/asana-codex-skill` with as little manual work as possible.
-
-Requirements:
-- If `~/Code/asana-codex-skill` does not exist, clone the repo there. If it does exist, update it safely.
-- Confirm `python3` is available and do not add any pip dependencies unless they are actually needed
-- Run `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py`
-- Keep secrets out of git
-- Install the skill into `~/.codex/skills/asana`
-- Enable the built-in auto-update path
-- Use `~/.codex/skills-data/asana/` for token and context storage
-- If `~/.codex/skills-data/asana/asana_pat` is missing, walk me through signing into Asana and creating one:
-  sign in to `https://app.asana.com/`, then go to profile photo -> `Settings` -> `Apps` -> `View developer console` -> `Personal access tokens` -> `Create new token`
-- Explain that the token is shown once and should be saved immediately
-- Save the token to `~/.codex/skills-data/asana/asana_pat` with safe file permissions
-- After the token is in place, rerun the bootstrap script so it can auto-build `asana-context.json`
-- Verify the install by running `python3 ~/Code/asana-codex-skill/scripts/asana_api.py whoami`
-- Verify the updater by running `python3 ~/Code/asana-codex-skill/scripts/update_skill.py --force`
-- Never print the token in output
-```
 
 ## Manual setup
 
