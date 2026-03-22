@@ -8,6 +8,7 @@ Defaults to a symlink install so the paired updater can fast-forward the live sk
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -46,6 +47,13 @@ def parse_args() -> argparse.Namespace:
 def ensure_python() -> None:
     if sys.version_info < (3, 10):
         raise SystemExit("Python 3.10+ is required.")
+
+
+def safe_resolve(path: Path) -> Path | None:
+    try:
+        return path.resolve()
+    except OSError:
+        return None
 
 
 def preserve_local_files(dest: Path, stash_dir: Path) -> None:
@@ -110,12 +118,17 @@ def write_next_steps(dest: Path, mode: str) -> None:
 def main() -> None:
     ensure_python()
     args = parse_args()
-    dest = Path(args.dest).expanduser().resolve()
+    dest = Path(args.dest).expanduser()
+    resolved_dest = safe_resolve(dest)
 
     if dest.exists() or dest.is_symlink():
-        if dest.is_symlink() and dest.resolve() == REPO_ROOT.resolve():
+        if dest.is_symlink() and resolved_dest == REPO_ROOT.resolve():
             write_next_steps(dest, args.mode)
             return
+        if dest.exists() and not dest.is_symlink() and resolved_dest == REPO_ROOT.resolve():
+            raise SystemExit(
+                f"Refusing to install into the repo source path itself: {dest}"
+            )
         if not args.replace:
             raise SystemExit(
                 f"{dest} already exists. Re-run with --replace to swap it out safely."
@@ -139,7 +152,7 @@ def main() -> None:
         restore_local_files(stash_dir)
         shutil.rmtree(stash_dir, ignore_errors=True)
 
-    write_next_steps(dest, args.mode)
+    write_next_steps(Path(os.path.realpath(dest)), args.mode)
 
 
 if __name__ == "__main__":

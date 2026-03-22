@@ -6,6 +6,7 @@ Portable Asana skill for Codex-style agents. The repo contains the skill itself,
 
 - `SKILL.md` plus `agents/openai.yaml`
 - `scripts/asana_api.py` with only Python standard-library dependencies
+- `scripts/bootstrap_skill.py` for first-time setup
 - `scripts/install_skill.py` for local install or update
 - `scripts/update_skill.py` for self-updating installs
 - `asana-context.example.json` for workspace and team defaults
@@ -23,10 +24,20 @@ No `pip install` step is required.
 Clone this repo into `~/Code/asana-codex-skill`, then run:
 
 ```bash
-python3 scripts/install_skill.py --mode symlink --replace
+python3 scripts/bootstrap_skill.py
 ```
 
-That makes `~/.codex/skills/asana` point at this repo, so a later `git pull` updates the live skill.
+That installs the skill, creates the local state directory, refreshes the repo when safe, and auto-builds `asana-context.json` if a token is already present.
+
+## Best install path for admins
+
+For non-technical admins, the bootstrap script is the main entry point:
+
+```bash
+python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py
+```
+
+It handles almost everything automatically and leaves only the token step if the user has not added one yet.
 
 ## Auto-update
 
@@ -43,37 +54,39 @@ It supports two cases:
 
 The skill can also call the updater in best-effort mode during normal use, with a built-in interval gate so it does not hit the network every single invocation.
 
-## AI-friendly install prompt
+## Single copy-paste AI prompt
 
 Paste this into your AI tool instead of asking people to run raw setup commands:
 
 ```text
-Install the `asana` skill from the GitHub repo `Unraid/asana-codex-skill`, then set it up locally for me.
+Set up the private `asana` skill for me from `Unraid/asana-codex-skill` with as little manual work as possible.
 
 Requirements:
-- Install it into `~/.codex/skills/asana`
-- Prefer a symlink install if the repo is already cloned locally; otherwise install from GitHub
+- If `~/Code/asana-codex-skill` does not exist, clone the repo there. If it does exist, update it safely.
 - Confirm `python3` is available and do not add any pip dependencies unless they are actually needed
-- Enable the skill's built-in auto-update path
+- Run `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py`
 - Keep secrets out of git
-- Configure auth with either `ASANA_ACCESS_TOKEN` or `~/.codex/skills-data/asana/asana_pat`
-- If `~/.codex/skills-data/asana/asana-context.json` does not exist, create it from `asana-context.example.json`
-- Verify the install by running `python3 scripts/asana_api.py whoami`
-- Verify the updater by running `python3 scripts/update_skill.py --force`
+- Install the skill into `~/.codex/skills/asana`
+- Enable the built-in auto-update path
+- Use `~/.codex/skills-data/asana/` for token and context storage
+- If `~/.codex/skills-data/asana/asana_pat` is missing, ask me for my Asana personal access token and save it there with safe file permissions
+- After the token is in place, rerun the bootstrap script so it can auto-build `asana-context.json`
+- Verify the install by running `python3 ~/Code/asana-codex-skill/scripts/asana_api.py whoami`
+- Verify the updater by running `python3 ~/Code/asana-codex-skill/scripts/update_skill.py --force`
 - Never print the token in output
 ```
 
 ## Manual setup
 
-1. Put your token in `ASANA_ACCESS_TOKEN`, or create `~/.codex/skills-data/asana/asana_pat`.
-2. Copy `asana-context.example.json` to `~/.codex/skills-data/asana/asana-context.json`.
-3. Fill in your workspace, team, and optional user defaults.
-4. Run `python3 scripts/asana_api.py whoami`.
-5. Run `python3 scripts/update_skill.py --force`.
+1. Clone the repo to `~/Code/asana-codex-skill`.
+2. Run `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py`.
+3. If prompted, add your PAT to `~/.codex/skills-data/asana/asana_pat`.
+4. Rerun `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py`.
 
 ## Updating
 
 - Any install: `python3 scripts/update_skill.py --force`
+- First-time setup or repair: `python3 scripts/bootstrap_skill.py`
 - Symlink install: `git -C ~/Code/asana-codex-skill pull --ff-only`
 - Copy install: the updater will convert it to a managed git-backed install automatically
 - GitHub install through AI: ask the AI to reinstall or refresh the skill from the repo
