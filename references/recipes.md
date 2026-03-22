@@ -56,12 +56,16 @@ List tasks or sections inside a project:
 
 ```bash
 python3 scripts/asana_api.py project-tasks <project_gid> --paginate
+python3 scripts/asana_api.py project-assigned-tasks <project_gid> --completed false
 python3 scripts/asana_api.py sections <project_gid>
 python3 scripts/asana_api.py section-tasks <section_gid>
 python3 scripts/asana_api.py board <project_gid>
 python3 scripts/asana_api.py project-custom-fields <project_gid>
 python3 scripts/asana_api.py team-custom-fields --team "Marketing & Communications"
 ```
+
+Use `project-assigned-tasks` when the question is "what is assigned to me in this project?" because it includes matching subtasks and adds parent task section context for subtasks that do not carry direct project memberships.
+Use `project-tasks` when you truly want the board's project task list itself.
 
 Use `board` and `task-status` together when the model needs to reason about workflow state.
 These commands return the exact section names and section ordering from Asana, plus `completed` on the task.

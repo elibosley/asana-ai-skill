@@ -37,6 +37,7 @@ The helper wraps JSON payloads in `data` automatically unless you pass `--no-wra
 - Use `opt_expand` when you need expanded nested records.
 - List endpoints may return `next_page`; use `--paginate` in the helper to follow it.
 - For broad task lookup, prefer `GET /workspaces/{workspace_gid}/tasks/search`.
+- For "assigned work in a project" pulls, prefer workspace search with `projects.any=<project_gid>` and `assignee.any=<user_gid>` over `GET /projects/{project_gid}/tasks`, because search results include matching subtasks while project task lists are top-level only.
 
 ## Common endpoint map
 

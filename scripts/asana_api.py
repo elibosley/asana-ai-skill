@@ -363,6 +363,21 @@ def task_opt_fields(default: str | None = None) -> str:
     )
 
 
+def project_assigned_task_opt_fields(default: str | None = None) -> str:
+    return default or (
+        "gid,name,completed,assignee.gid,assignee.name,due_on,due_at,permalink_url,"
+        "parent.gid,parent.name,projects.gid,projects.name,memberships.project.gid,"
+        "memberships.project.name,memberships.section.gid,memberships.section.name"
+    )
+
+
+def parent_task_context_opt_fields(default: str | None = None) -> str:
+    return default or (
+        "gid,name,permalink_url,memberships.project.gid,memberships.project.name,"
+        "memberships.section.gid,memberships.section.name"
+    )
+
+
 def section_opt_fields(default: str | None = None) -> str:
     return default or "gid,name,project.name,created_at"
 
@@ -1170,6 +1185,105 @@ def command_search_tasks(args: argparse.Namespace) -> Any:
     return response
 
 
+def fetch_parent_task_context_map(token: str, parent_gids: list[str]) -> dict[str, dict[str, Any]]:
+    unique_parent_gids: list[str] = []
+    seen: set[str] = set()
+    for parent_gid in parent_gids:
+        if parent_gid and parent_gid not in seen:
+            seen.add(parent_gid)
+            unique_parent_gids.append(parent_gid)
+
+    parent_context_map: dict[str, dict[str, Any]] = {}
+    for start in range(0, len(unique_parent_gids), 10):
+        chunk = unique_parent_gids[start : start + 10]
+        actions = [
+            {
+                "method": "get",
+                "relative_path": f"/tasks/{parent_gid}",
+                "options": {"fields": field_list(parent_task_context_opt_fields())},
+            }
+            for parent_gid in chunk
+        ]
+        batch_response = batch_actions_request(token, actions)
+        for index, parent_gid in enumerate(chunk):
+            parent = batch_body_at(batch_response, index).get("data", {})
+            if parent:
+                parent_context_map[parent_gid] = parent
+    return parent_context_map
+
+
+def command_project_assigned_tasks(args: argparse.Namespace) -> Any:
+    token = get_token(args)
+    context = load_context()
+    workspace = workspace_default(args, context)
+    if not workspace:
+        raise SystemExit("No workspace GID provided and no default workspace in asana-context.json")
+
+    assignee = args.assignee or context.get("user_gid") or "me"
+    if assignee == "me" and context.get("user_gid"):
+        assignee = context["user_gid"]
+
+    query: dict[str, str] = {
+        "projects.any": args.project_gid,
+        "assignee.any": assignee,
+        "opt_fields": args.opt_fields or project_assigned_task_opt_fields(),
+    }
+    if args.completed is not None:
+        query["completed"] = str(args.completed).lower()
+
+    response = api_request(
+        token=token,
+        method="GET",
+        path_or_url=f"/workspaces/{workspace}/tasks/search",
+        query=query,
+    )
+    response = maybe_paginate(token, response, args.paginate, args.limit_pages)
+
+    tasks = response.get("data", [])
+    if not isinstance(tasks, list):
+        print_json(response, args.compact)
+        return response
+
+    parent_context_map = fetch_parent_task_context_map(
+        token,
+        [
+            str(task.get("parent", {}).get("gid"))
+            for task in tasks
+            if isinstance(task, dict) and isinstance(task.get("parent"), dict) and task["parent"].get("gid")
+        ],
+    )
+
+    enriched_tasks: list[dict[str, Any]] = []
+    for task in tasks:
+        if not isinstance(task, dict):
+            enriched_tasks.append(task)
+            continue
+
+        task_payload = dict(task)
+        parent = task_payload.get("parent")
+        parent_gid = parent.get("gid") if isinstance(parent, dict) else None
+        parent_context = parent_context_map.get(str(parent_gid)) if parent_gid else None
+        memberships = task_payload.get("memberships")
+        effective_memberships = memberships if memberships else parent_context.get("memberships", []) if parent_context else []
+
+        task_payload["is_subtask"] = bool(parent_gid)
+        task_payload["effective_memberships"] = effective_memberships
+        if parent_context:
+            task_payload["parent_context"] = parent_context
+
+        enriched_tasks.append(task_payload)
+
+    payload = dict(response)
+    payload["data"] = enriched_tasks
+    payload["project_gid"] = args.project_gid
+    payload["workspace_gid"] = workspace
+    payload["assignee"] = assignee
+    payload["includes_subtasks"] = True
+    payload["subtask_count"] = sum(1 for task in enriched_tasks if isinstance(task, dict) and task.get("is_subtask"))
+    print_json(payload, args.compact)
+    return payload
+
+
 def build_task_payload(args: argparse.Namespace, context: dict[str, Any], is_create: bool) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     for attr in ("name", "notes", "html_notes", "assignee", "due_on", "due_at"):
@@ -1409,6 +1523,23 @@ def build_parser() -> argparse.ArgumentParser:
     project_tasks_parser.add_argument("--limit-pages", type=int, default=0, help="Stop pagination after N pages")
     add_common_output_flags(project_tasks_parser)
     project_tasks_parser.set_defaults(func=command_project_tasks)
+
+    project_assigned_parser = subparsers.add_parser(
+        "project-assigned-tasks",
+        help="List assigned work in a project, including matching subtasks with parent section context",
+    )
+    project_assigned_parser.add_argument("project_gid")
+    project_assigned_parser.add_argument("--workspace", help="Workspace GID override")
+    project_assigned_parser.add_argument(
+        "--assignee",
+        help="Assignee filter, defaults to the current user from asana-context.json",
+    )
+    project_assigned_parser.add_argument("--completed", type=parse_bool, help="Filter by completion")
+    project_assigned_parser.add_argument("--opt-fields", help="Override result fields")
+    project_assigned_parser.add_argument("--paginate", action="store_true", help="Follow Asana next_page links")
+    project_assigned_parser.add_argument("--limit-pages", type=int, default=0, help="Stop pagination after N pages")
+    add_common_output_flags(project_assigned_parser)
+    project_assigned_parser.set_defaults(func=command_project_assigned_tasks)
 
     sections_parser = subparsers.add_parser("sections", help="List sections in a project")
     sections_parser.add_argument("project_gid")
