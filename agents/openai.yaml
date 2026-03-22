@@ -1,0 +1,4 @@
+interface:
+  display_name: "Asana"
+  short_description: "Read and write Asana data"
+  default_prompt: "Use $asana to inspect or update Asana tasks, projects, teams, and workspace data."

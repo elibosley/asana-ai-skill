@@ -1,0 +1,10 @@
+{
+  "user_gid": "me",
+  "user_name": "Your Name",
+  "workspace_gid": "1234567890123456",
+  "workspace_name": "Your Workspace",
+  "teams": {
+    "1234567890123457": "Marketing",
+    "1234567890123458": "Engineering"
+  }
+}
