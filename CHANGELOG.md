@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.0.1] - 2026-03-22 — Repo Rename Cleanup
+
+### Changed
+
+- **The skill now points at the renamed GitHub repo everywhere it matters.** Fresh installs and managed clones now prefer `unraid/asana-ai-skill`, setup docs use the new repo name and example checkout path, and bootstrap refresh messaging uses the actual local repo path instead of a stale hard-coded one.
+
 ## [0.1.0.0] - 2026-03-22 — Versioned Skill Baseline
 
 ### Added

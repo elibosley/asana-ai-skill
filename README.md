@@ -12,7 +12,7 @@ If you are a non-technical Asana admin, start here.
 4. Run:
 
 ```bash
-python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py --agent both
+python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent both
 ```
 
 That bootstrap step installs the skill for both Codex and Claude Code, creates shared local storage, builds your Asana context automatically, and verifies access.
@@ -20,16 +20,16 @@ That bootstrap step installs the skill for both Codex and Claude Code, creates s
 If you want your AI tool to do almost all of this for you, paste this:
 
 ```text
-Set up the private `asana` skill for me from `Unraid/asana-codex-skill` with as little manual work as possible.
+Set up the private `asana` skill for me from `Unraid/asana-ai-skill` with as little manual work as possible.
 
 Requirements:
 - Ask me first which agent I want this installed for: `Codex`, `Claude Code`, or `both`
-- If `~/Code/asana-codex-skill` does not exist, clone the repo there. If it does exist, update it safely.
+- If `~/Code/asana-ai-skill` does not exist, clone the repo there. If it does exist, update it safely.
 - Confirm `python3` is available and do not add any pip dependencies unless they are actually needed
 - After I answer, run the matching bootstrap command:
-  - Codex: `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py --agent codex`
-  - Claude Code: `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py --agent claude`
-  - Both: `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py --agent both`
+  - Codex: `python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent codex`
+  - Claude Code: `python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent claude`
+  - Both: `python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent both`
 - Keep secrets out of git
 - Install only the agent target I chose
 - Enable the built-in auto-update path
@@ -39,15 +39,15 @@ Requirements:
 - Explain that the token is shown once and should be saved immediately
 - Save the token to `~/.agent-skills/asana/asana_pat` with safe file permissions
 - After the token is in place, rerun the bootstrap script so it can auto-build `asana-context.json`
-- Verify the install by running `python3 ~/Code/asana-codex-skill/scripts/asana_api.py whoami`
-- Verify the updater by running `python3 ~/Code/asana-codex-skill/scripts/update_skill.py --force`
+- Verify the install by running `python3 ~/Code/asana-ai-skill/scripts/asana_api.py whoami`
+- Verify the updater by running `python3 ~/Code/asana-ai-skill/scripts/update_skill.py --force`
 - Never print the token in output
 ```
 
 If you only want one agent:
 
-- Codex only: `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py --agent codex`
-- Claude Code only: `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py --agent claude`
+- Codex only: `python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent codex`
+- Claude Code only: `python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent claude`
 
 ## What Is Included
 
@@ -72,7 +72,7 @@ No `pip install` step is required.
 
 ## Maintainer Setup
 
-Clone this repo into `~/Code/asana-codex-skill`, then run:
+Clone this repo into `~/Code/asana-ai-skill`, then run:
 
 ```bash
 python3 scripts/bootstrap_skill.py --agent both
@@ -85,7 +85,7 @@ That installs the skill, creates the shared local state directory, refreshes the
 For non-technical admins, the bootstrap script is the main entry point:
 
 ```bash
-python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py --agent both
+python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent both
 ```
 
 It handles almost everything automatically and leaves only the token step if the user has not added one yet.
@@ -122,22 +122,22 @@ python3 scripts/update_skill.py --force
 It supports two cases:
 
 - Symlink or git-backed install: fast-forwards the local checkout with `git pull --ff-only`
-- Copy install: bootstraps a managed clone under `~/.agent-skills/sources/asana-codex-skill`, then switches the installed skill directories to that tracked checkout
+- Copy install: bootstraps a managed clone under `~/.agent-skills/sources/asana-ai-skill`, then switches the installed skill directories to that tracked checkout
 
 The skill can also call the updater in best-effort mode during normal use, with a built-in interval gate so it does not hit the network every single invocation.
 
 ## Manual setup
 
-1. Clone the repo to `~/Code/asana-codex-skill`.
+1. Clone the repo to `~/Code/asana-ai-skill`.
 2. Sign in to Asana and create a PAT from `Settings` -> `Apps` -> `View developer console` -> `Personal access tokens` -> `Create new token`.
 3. Save that PAT to `~/.agent-skills/asana/asana_pat`.
-4. Run `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py --agent both`.
+4. Run `python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent both`.
 
 ## Updating
 
 - Any install: `python3 scripts/update_skill.py --force`
 - First-time setup or repair: `python3 scripts/bootstrap_skill.py --agent both`
-- Symlink install: `git -C ~/Code/asana-codex-skill pull --ff-only`
+- Symlink install: `git -C ~/Code/asana-ai-skill pull --ff-only`
 - Copy install: the updater will convert it to a managed git-backed install automatically
 - GitHub install through AI: ask the AI to reinstall or refresh the skill from the repo
 - The skill now tracks a gstack-style 4-part `VERSION` plus a user-facing `CHANGELOG.md`

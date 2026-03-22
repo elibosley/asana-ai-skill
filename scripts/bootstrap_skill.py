@@ -216,9 +216,10 @@ def maybe_verify(skip_verify: bool) -> str:
 
 
 def print_next_steps() -> None:
+    repo_path = REPO_ROOT
     if token_exists():
         print("The skill is ready to use.")
-        print("Future refreshes: python3 ~/Code/asana-codex-skill/scripts/update_skill.py --force")
+        print(f"Future refreshes: python3 {repo_path}/scripts/update_skill.py --force")
         return
 
     print("One more step is needed before the skill can talk to Asana:")
