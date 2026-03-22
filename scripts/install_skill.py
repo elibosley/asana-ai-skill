@@ -2,7 +2,7 @@
 """
 Install or update the Asana skill into ~/.codex/skills/asana.
 
-Defaults to a symlink install so pulling the repo updates the active skill.
+Defaults to a symlink install so the paired updater can fast-forward the live skill.
 """
 
 from __future__ import annotations
@@ -102,8 +102,9 @@ def write_next_steps(dest: Path, mode: str) -> None:
     print("1. Add your PAT to ASANA_ACCESS_TOKEN or ~/.codex/skills-data/asana/asana_pat.")
     print("2. Copy asana-context.example.json to ~/.codex/skills-data/asana/asana-context.json.")
     print("3. Verify with: python3 scripts/asana_api.py whoami")
+    print("4. Auto-update with: python3 scripts/update_skill.py --force")
     if mode == "symlink":
-        print(f"4. Update later with: git -C {REPO_ROOT} pull")
+        print(f"5. Manual git update still works: git -C {REPO_ROOT} pull --ff-only")
 
 
 def main() -> None:

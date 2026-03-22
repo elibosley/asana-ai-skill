@@ -23,19 +23,20 @@ The helper reads the PAT from `ASANA_ACCESS_TOKEN` first, then falls back to the
 
 ## Workflow
 
-1. Read `references/api-overview.md` for auth, request shape, pagination, and the endpoint map.
-2. Read `references/recipes.md` when you need ready-made commands for common operations.
-3. Use `python3 scripts/asana_api.py ...` for API calls.
-4. When you need to plan work from a single Asana ticket, prefer `task-bundle` first because it pulls task fields, comments, attachments, and project workflow context together in one call.
-5. For writes, inspect the current object first unless the user already provided the exact target GID and desired mutation.
-6. Prefer task/project comments (`stories`) for status notes instead of overwriting task descriptions unless the user asked for that.
-7. Treat section names and section order as raw workflow context. Do not assume a given column means “done” unless the user or surrounding project context says so.
-8. For any AI-authored comment or AI-authored task-note update, begin the message with the heading `AI MESSAGE DISCLAIMER`.
-9. Use rich-text HTML fields for AI-authored updates whenever formatting matters:
+1. Before substantial work, run `python3 scripts/update_skill.py --quiet --best-effort` so the skill can pick up fixes from the shared repo without blocking the task if the network or git auth is unavailable.
+2. Read `references/api-overview.md` for auth, request shape, pagination, and the endpoint map.
+3. Read `references/recipes.md` when you need ready-made commands for common operations.
+4. Use `python3 scripts/asana_api.py ...` for API calls.
+5. When you need to plan work from a single Asana ticket, prefer `task-bundle` first because it pulls task fields, comments, attachments, and project workflow context together in one call.
+6. For writes, inspect the current object first unless the user already provided the exact target GID and desired mutation.
+7. Prefer task/project comments (`stories`) for status notes instead of overwriting task descriptions unless the user asked for that.
+8. Treat section names and section order as raw workflow context. Do not assume a given column means “done” unless the user or surrounding project context says so.
+9. For any AI-authored comment or AI-authored task-note update, begin the message with the heading `AI MESSAGE DISCLAIMER`.
+10. Use rich-text HTML fields for AI-authored updates whenever formatting matters:
    - Task comments/stories: `html_text`
    - Task descriptions/notes: `html_notes`
-10. Do not paste Markdown-style bullets or escaped `\n` sequences into plain `text` fields when the message needs headings, lists, or paragraphs. Prefer proper HTML structure.
-11. Before posting or updating an AI-authored message, sanity-check how it will render in Asana: use paragraphs, `<strong>` for labels, and `<ul><li>` for lists rather than relying on Markdown.
+11. Do not paste Markdown-style bullets or escaped `\n` sequences into plain `text` fields when the message needs headings, lists, or paragraphs. Prefer proper HTML structure.
+12. Before posting or updating an AI-authored message, sanity-check how it will render in Asana: use paragraphs, `<strong>` for labels, and `<ul><li>` for lists rather than relying on Markdown.
 
 ## AI Message Format
 
