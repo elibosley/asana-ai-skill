@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.0.4] - 2026-03-22 — Active My Tasks Inbox Cleanup
+
+### Changed
+
+- **My Tasks cleanup is now an active AI triage flow instead of a simple sorter.** The skill can size up a user's My Tasks queue on first run, advertise the right next steps, sort tasks into review sections, re-analyze comments and linked PRs, infer work type plus `active_ai_action` recommendations, and keep manager-style comments off shared tasks unless a task is clearly private.
+
 ## [0.1.0.3] - 2026-03-22 — Compact AI Rich Text Markup
 
 ### Fixed
