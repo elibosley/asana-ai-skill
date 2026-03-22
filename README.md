@@ -155,9 +155,21 @@ Helpful commands:
 
 ```bash
 cat VERSION
+python3 scripts/check_release.py
 python3 scripts/bump_version.py --part micro --title "Short release title"
 python3 scripts/update_skill.py --force
 ```
+
+## Maintainer release workflow
+
+If you changed the skill itself, do not push it like a normal one-off repo tweak. Treat it as a versioned skill release.
+
+1. Run `python3 scripts/bump_version.py --part micro --title "Short release title"`.
+2. Replace the scaffold text in `CHANGELOG.md` with a real user-facing summary.
+3. Run `python3 scripts/check_release.py`.
+4. Commit and push only after the release check passes.
+
+`scripts/check_release.py` fails when the diff contains skill changes without both `VERSION` and `CHANGELOG.md`, when the top changelog entry does not match `VERSION`, or when the changelog still contains the scaffold placeholder text. The intended maintainer habit is: no skill push without a green release check.
 
 ## Secret handling
 

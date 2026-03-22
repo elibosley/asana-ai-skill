@@ -61,6 +61,10 @@ The helper reads the PAT from `ASANA_ACCESS_TOKEN` first, then falls back to the
 25. When the user wants the cleanup pass to act more like a personal PM, use `--manager-comments` to post AI-authored next-step comments, or `--comment-research-todos` to post only research TODO comments.
 26. Manager-plan comments must stay private-by-default. Do not emit them into tasks that appear shared through project membership or parent-task context; reserve those AI-authored PM comments for tasks that look private to the user's My Tasks.
 27. `inbox-cleanup` should now be treated as an active AI triage pass, not just a section-mover. It re-analyzes task comments, looks for linked PRs/URLs, assigns an `active_ai_action` like `ask_to_execute_now` or `ask_to_verify`, and surfaces which tasks are good candidates for immediate AI help after the user confirms.
+28. If the task changes this skill repo itself, treat it as a shipped skill update unless the user explicitly says not to release it yet.
+29. Before committing or pushing any skill change, run `python3 scripts/check_release.py`. Do not push until it passes.
+30. If `check_release.py` fails because release metadata is missing, run `python3 scripts/bump_version.py --part micro --title "Short release title"`, replace the scaffold line in `CHANGELOG.md` with a real user-facing summary, rerun `python3 scripts/check_release.py`, then commit and push.
+31. Never leave the top changelog entry on the placeholder text `Describe the user-visible change here.` If you bumped the version, you own writing the matching release note before you finish.
 
 ## AI Message Format
 
@@ -97,6 +101,8 @@ python3 scripts/asana_api.py workspaces
 python3 scripts/asana_api.py teams
 python3 scripts/asana_api.py users
 python3 scripts/asana_api.py show-cache
+python3 scripts/check_release.py
+python3 scripts/bump_version.py --part micro --title "Short release title"
 python3 scripts/asana_api.py workspace-custom-fields
 python3 scripts/asana_api.py projects --team <team_gid>
 python3 scripts/asana_api.py project-tasks <project_gid>

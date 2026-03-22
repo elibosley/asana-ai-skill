@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.0.5] - 2026-03-22 — Release Guard For Skill Updates
+
+### Changed
+
+- **Maintainers now get a hard release gate before pushing skill changes.** The skill instructions explicitly require a versioned release workflow, and the new `python3 scripts/check_release.py` command fails when a skill diff is missing `VERSION` plus `CHANGELOG.md`, when the top changelog entry does not match `VERSION`, or when the scaffold placeholder text has not been replaced with a real release note.
+
 ## [0.1.0.4] - 2026-03-22 — Active My Tasks Inbox Cleanup
 
 ### Changed
