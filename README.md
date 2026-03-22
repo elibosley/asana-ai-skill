@@ -23,11 +23,15 @@ If you want your AI tool to do almost all of this for you, paste this:
 Set up the private `asana` skill for me from `Unraid/asana-codex-skill` with as little manual work as possible.
 
 Requirements:
+- Ask me first which agent I want this installed for: `Codex`, `Claude Code`, or `both`
 - If `~/Code/asana-codex-skill` does not exist, clone the repo there. If it does exist, update it safely.
 - Confirm `python3` is available and do not add any pip dependencies unless they are actually needed
-- Run `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py --agent both`
+- After I answer, run the matching bootstrap command:
+  - Codex: `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py --agent codex`
+  - Claude Code: `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py --agent claude`
+  - Both: `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py --agent both`
 - Keep secrets out of git
-- Install the skill into both `~/.codex/skills/asana` and `~/.claude/skills/asana`
+- Install only the agent target I chose
 - Enable the built-in auto-update path
 - Use `~/.agent-skills/asana/` for token and context storage
 - If `~/.agent-skills/asana/asana_pat` is missing, walk me through signing into Asana and creating one:
