@@ -392,51 +392,167 @@ def load_inline_or_file_value(
     return Path(file_path).read_text()
 
 
+AI_MESSAGE_HEADER_RE = re.compile(
+    r"(?P<header><strong>\s*AI MESSAGE DISCLAIMER\s*</strong>)(?P<rest>.*)",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+AI_MESSAGE_LABEL_RE = re.compile(
+    r"(<strong>\s*(?!AI MESSAGE DISCLAIMER\b)[^<]+?:\s*</strong>)(.*?)(?=(<strong>\s*(?!AI MESSAGE DISCLAIMER\b)[^<]+?:\s*</strong>)|$)",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+AI_MESSAGE_LABEL_ONLY_RE = re.compile(
+    r"^(<strong>\s*(?!AI MESSAGE DISCLAIMER\b)[^<]+?:\s*</strong>)$",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+AI_MESSAGE_LABEL_WITH_CONTENT_RE = re.compile(
+    r"^(<strong>\s*(?!AI MESSAGE DISCLAIMER\b)[^<]+?:\s*</strong>)(.+)$",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+
+def collapse_html_whitespace(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def render_ai_message_sections(
+    sections: list[tuple[str | None, str, str | list[str]]],
+) -> str | None:
+    if not sections:
+        return None
+
+    parts = ["<body><strong>AI MESSAGE DISCLAIMER</strong>"]
+    for label_html, kind, content in sections:
+        if label_html is None:
+            scalar = collapse_html_whitespace(str(content))
+            if scalar:
+                parts.append(f"<blockquote>{scalar}</blockquote>")
+            continue
+
+        parts.append(label_html)
+        if kind == "list":
+            items = [
+                f"<li>{collapse_html_whitespace(item)}</li>"
+                for item in content
+                if collapse_html_whitespace(item)
+            ]
+            if items:
+                parts.append(f"<ul>{''.join(items)}</ul>")
+            continue
+
+        scalar = collapse_html_whitespace(str(content))
+        if scalar:
+            parts.append(f"<blockquote>{scalar}</blockquote>")
+
+    parts.append("</body>")
+    return "".join(parts)
+
+
+def normalize_legacy_ai_message_list(inner: str) -> str | None:
+    disclaimer_match = AI_MESSAGE_HEADER_RE.match(inner)
+    if not disclaimer_match:
+        return None
+
+    rest = disclaimer_match.group("rest").strip()
+    if re.search(r"<(ol|blockquote|pre)\b", rest, flags=re.IGNORECASE):
+        return None
+
+    ul_match = re.fullmatch(r"<ul\b[^>]*>(?P<items>.*)</ul>", rest, flags=re.IGNORECASE | re.DOTALL)
+    if not ul_match:
+        return None
+
+    item_matches = re.findall(
+        r"<li\b[^>]*>(.*?)</li>",
+        ul_match.group("items"),
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not item_matches:
+        return None
+
+    sections: list[tuple[str | None, str, str | list[str]]] = []
+    pending_list_label: str | None = None
+    pending_list_items: list[str] = []
+
+    def flush_pending_list() -> None:
+        nonlocal pending_list_label, pending_list_items
+        if pending_list_label is None:
+            return
+        if pending_list_items:
+            sections.append((pending_list_label, "list", pending_list_items[:]))
+        else:
+            sections.append((pending_list_label, "scalar", ""))
+        pending_list_label = None
+        pending_list_items = []
+
+    for raw_item in item_matches:
+        item = collapse_html_whitespace(raw_item)
+        if not item:
+            continue
+
+        label_only_match = AI_MESSAGE_LABEL_ONLY_RE.fullmatch(item)
+        if label_only_match:
+            flush_pending_list()
+            pending_list_label = label_only_match.group(1).strip()
+            pending_list_items = []
+            continue
+
+        label_with_content_match = AI_MESSAGE_LABEL_WITH_CONTENT_RE.fullmatch(item)
+        if label_with_content_match:
+            flush_pending_list()
+            sections.append(
+                (
+                    label_with_content_match.group(1).strip(),
+                    "scalar",
+                    label_with_content_match.group(2).strip(),
+                )
+            )
+            continue
+
+        if pending_list_label is not None:
+            pending_list_items.append(item)
+        else:
+            sections.append((None, "scalar", item))
+
+    flush_pending_list()
+    return render_ai_message_sections(sections)
+
+
 def normalize_ai_authored_rich_text(value: str | None) -> str | None:
     raw = str(value or "").strip()
     if not raw or "AI MESSAGE DISCLAIMER" not in raw:
         return value
 
-    # Leave already-block-structured content alone.
+    body_match = re.search(r"<body\b[^>]*>(.*)</body>", raw, flags=re.IGNORECASE | re.DOTALL)
+    inner = body_match.group(1) if body_match else raw
+    inner = collapse_html_whitespace(inner)
+
+    legacy_list_normalized = normalize_legacy_ai_message_list(inner)
+    if legacy_list_normalized is not None:
+        return legacy_list_normalized
+
+    # Leave already-block-structured content alone unless it matches the legacy single-list shape above.
     if re.search(r"<(ul|ol|blockquote|pre)\b", raw, flags=re.IGNORECASE):
         return value
 
-    body_match = re.search(r"<body\b[^>]*>(.*)</body>", raw, flags=re.IGNORECASE | re.DOTALL)
-    inner = body_match.group(1) if body_match else raw
-    inner = re.sub(r"\s+", " ", inner).strip()
-
-    disclaimer_match = re.match(
-        r"(?P<header><strong>\s*AI MESSAGE DISCLAIMER\s*</strong>)(?P<rest>.*)",
-        inner,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
+    disclaimer_match = AI_MESSAGE_HEADER_RE.match(inner)
     if not disclaimer_match:
         return value
 
     rest = disclaimer_match.group("rest").strip()
-    label_pattern = re.compile(
-        r"(<strong>\s*(?!AI MESSAGE DISCLAIMER\b)[^<]+?:\s*</strong>)(.*?)(?=(<strong>\s*(?!AI MESSAGE DISCLAIMER\b)[^<]+?:\s*</strong>)|$)",
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-
-    items: list[str] = []
-    first_label = label_pattern.search(rest)
+    sections: list[tuple[str | None, str, str | list[str]]] = []
+    first_label = AI_MESSAGE_LABEL_RE.search(rest)
     intro = rest[: first_label.start()].strip() if first_label else rest
     if intro:
-        items.append(f"<li>{intro}</li>")
+        sections.append((None, "scalar", intro))
 
-    for match in label_pattern.finditer(rest[first_label.start() :] if first_label else ""):
+    for match in AI_MESSAGE_LABEL_RE.finditer(rest[first_label.start() :] if first_label else ""):
         label_html = match.group(1).strip()
         content_html = match.group(2).strip()
-        if content_html:
-            items.append(f"<li>{label_html} {content_html}</li>")
-        else:
-            items.append(f"<li>{label_html}</li>")
+        sections.append((label_html, "scalar", content_html))
 
-    if not items:
+    normalized = render_ai_message_sections(sections)
+    if normalized is None:
         return value
-
-    return f"<body><strong>AI MESSAGE DISCLAIMER</strong><ul>{''.join(items)}</ul></body>"
+    return normalized
 
 
 def comment_payload_from_args(args: argparse.Namespace) -> dict[str, str]:

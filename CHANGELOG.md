@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.0.2] - 2026-03-22 — AI Comment Formatting Cleanup
+
+### Fixed
+
+- **AI-authored Asana updates no longer collapse into one giant bullet list.** The rich-text normalizer now rewrites the older single-list disclaimer format into mixed block/list sections, preserves already-structured comments, and the recommended templates now use blockquote-style narrative lines with lists only where bullets are actually warranted.
+
 ## [0.1.0.1] - 2026-03-22 — Repo Rename Cleanup
 
 ### Changed
