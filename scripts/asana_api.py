@@ -392,6 +392,53 @@ def load_inline_or_file_value(
     return Path(file_path).read_text()
 
 
+def normalize_ai_authored_rich_text(value: str | None) -> str | None:
+    raw = str(value or "").strip()
+    if not raw or "AI MESSAGE DISCLAIMER" not in raw:
+        return value
+
+    # Leave already-block-structured content alone.
+    if re.search(r"<(ul|ol|blockquote|pre)\b", raw, flags=re.IGNORECASE):
+        return value
+
+    body_match = re.search(r"<body\b[^>]*>(.*)</body>", raw, flags=re.IGNORECASE | re.DOTALL)
+    inner = body_match.group(1) if body_match else raw
+    inner = re.sub(r"\s+", " ", inner).strip()
+
+    disclaimer_match = re.match(
+        r"(?P<header><strong>\s*AI MESSAGE DISCLAIMER\s*</strong>)(?P<rest>.*)",
+        inner,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not disclaimer_match:
+        return value
+
+    rest = disclaimer_match.group("rest").strip()
+    label_pattern = re.compile(
+        r"(<strong>\s*(?!AI MESSAGE DISCLAIMER\b)[^<]+?:\s*</strong>)(.*?)(?=(<strong>\s*(?!AI MESSAGE DISCLAIMER\b)[^<]+?:\s*</strong>)|$)",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    items: list[str] = []
+    first_label = label_pattern.search(rest)
+    intro = rest[: first_label.start()].strip() if first_label else rest
+    if intro:
+        items.append(f"<li>{intro}</li>")
+
+    for match in label_pattern.finditer(rest[first_label.start() :] if first_label else ""):
+        label_html = match.group(1).strip()
+        content_html = match.group(2).strip()
+        if content_html:
+            items.append(f"<li>{label_html} {content_html}</li>")
+        else:
+            items.append(f"<li>{label_html}</li>")
+
+    if not items:
+        return value
+
+    return f"<body><strong>AI MESSAGE DISCLAIMER</strong><ul>{''.join(items)}</ul></body>"
+
+
 def comment_payload_from_args(args: argparse.Namespace) -> dict[str, str]:
     text_value = load_inline_or_file_value(args.text, args.text_file, field_name="text")
     html_text_value = load_inline_or_file_value(
@@ -407,7 +454,7 @@ def comment_payload_from_args(args: argparse.Namespace) -> dict[str, str]:
         )
 
     if html_text_value is not None:
-        return {"html_text": html_text_value}
+        return {"html_text": normalize_ai_authored_rich_text(html_text_value) or ""}
     return {"text": text_value or ""}
 
 
@@ -1928,10 +1975,14 @@ def build_task_payload(
     is_create: bool,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {}
-    for attr in ("name", "notes", "html_notes", "due_on", "due_at"):
+    for attr in ("name", "notes", "due_on", "due_at"):
         value = getattr(args, attr, None)
         if value:
             payload[attr] = value
+
+    html_notes = getattr(args, "html_notes", None)
+    if html_notes:
+        payload["html_notes"] = normalize_ai_authored_rich_text(html_notes) or ""
 
     assignee = resolve_user_identifier(getattr(args, "assignee", None), context, cache)
     if assignee:
