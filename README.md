@@ -39,6 +39,25 @@ python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py
 
 It handles almost everything automatically and leaves only the token step if the user has not added one yet.
 
+## Getting an Asana token
+
+If the user does not already have a token, they need to sign in to Asana first and create one from the developer console:
+
+1. Sign in to [Asana](https://app.asana.com/).
+2. Click your profile photo.
+3. Open `Settings`.
+4. Go to the `Apps` tab.
+5. Click `View developer console`.
+6. In `Personal access tokens`, click `Create new token`.
+7. Name the token, accept the API terms, and create it.
+8. Copy the token immediately and save it to `~/.codex/skills-data/asana/asana_pat`.
+
+Important notes:
+
+- The token is shown once, so copy it right away.
+- A PAT acts as the signed-in user.
+- It can access the Asana workspaces that user is already a member of.
+
 ## Auto-update
 
 The skill now ships with a self-updater:
@@ -69,7 +88,10 @@ Requirements:
 - Install the skill into `~/.codex/skills/asana`
 - Enable the built-in auto-update path
 - Use `~/.codex/skills-data/asana/` for token and context storage
-- If `~/.codex/skills-data/asana/asana_pat` is missing, ask me for my Asana personal access token and save it there with safe file permissions
+- If `~/.codex/skills-data/asana/asana_pat` is missing, walk me through signing into Asana and creating one:
+  sign in to `https://app.asana.com/`, then go to profile photo -> `Settings` -> `Apps` -> `View developer console` -> `Personal access tokens` -> `Create new token`
+- Explain that the token is shown once and should be saved immediately
+- Save the token to `~/.codex/skills-data/asana/asana_pat` with safe file permissions
 - After the token is in place, rerun the bootstrap script so it can auto-build `asana-context.json`
 - Verify the install by running `python3 ~/Code/asana-codex-skill/scripts/asana_api.py whoami`
 - Verify the updater by running `python3 ~/Code/asana-codex-skill/scripts/update_skill.py --force`
@@ -79,9 +101,9 @@ Requirements:
 ## Manual setup
 
 1. Clone the repo to `~/Code/asana-codex-skill`.
-2. Run `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py`.
-3. If prompted, add your PAT to `~/.codex/skills-data/asana/asana_pat`.
-4. Rerun `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py`.
+2. Sign in to Asana and create a PAT from `Settings` -> `Apps` -> `View developer console` -> `Personal access tokens` -> `Create new token`.
+3. Save that PAT to `~/.codex/skills-data/asana/asana_pat`.
+4. Run `python3 ~/Code/asana-codex-skill/scripts/bootstrap_skill.py`.
 
 ## Updating
 
