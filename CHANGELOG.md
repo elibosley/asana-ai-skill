@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.0.3] - 2026-03-22 — Compact AI Rich Text Markup
+
+### Fixed
+
+- **AI-authored list sections no longer carry indentation whitespace that can show up as empty bullets in Asana.** The formatter now compacts already-structured disclaimer markup before posting, so `What changed` and `Verification` lists are stored without newline-only list artifacts.
+
 ## [0.1.0.2] - 2026-03-22 — AI Comment Formatting Cleanup
 
 ### Fixed

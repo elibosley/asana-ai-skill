@@ -52,7 +52,7 @@ The helper reads the PAT from `ASANA_ACCESS_TOKEN` first, then falls back to the
 17. Do not paste Markdown-style bullets or escaped `\n` sequences into plain `text` fields when the message needs headings, lists, or paragraphs. Prefer proper HTML structure.
 18. Before posting or updating an AI-authored message, sanity-check how it will render in Asana: use block-style sections for narrative/status lines, `<strong>` for labels, and `<ul><li>` only for actual lists rather than relying on Markdown.
 19. After any write that creates or updates a task or story, include the returned Asana `review_url` in your user-facing reply so the user can click straight into the updated object. For story writes, also surface `target_review_url` when helpful so the user can review the parent task.
-20. The helper auto-normalizes AI disclaimer messages that arrive as one inline HTML blob or as the older single-list disclaimer format, but you should still prefer an explicit mixed structure so Asana does not turn the entire message into bullets.
+20. The helper auto-normalizes AI disclaimer messages that arrive as one inline HTML blob or as the older single-list disclaimer format, and it now compacts AI-authored rich text before posting so indentation whitespace does not create phantom empty bullets in Asana.
 
 ## AI Message Format
 

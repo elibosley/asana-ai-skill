@@ -447,6 +447,27 @@ def render_ai_message_sections(
     return "".join(parts)
 
 
+def canonicalize_ai_authored_markup(value: str) -> str:
+    compact = re.sub(r">\s+<", "><", value.strip(), flags=re.DOTALL)
+
+    def _trim_tag_content(tag: str, text: str) -> str:
+        pattern = re.compile(
+            rf"<{tag}\b(?P<attrs>[^>]*)>(?P<content>.*?)</{tag}>",
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+
+        def _replace(match: re.Match[str]) -> str:
+            attrs = match.group("attrs")
+            content = collapse_html_whitespace(match.group("content"))
+            return f"<{tag}{attrs}>{content}</{tag}>"
+
+        return pattern.sub(_replace, text)
+
+    for tag_name in ("blockquote", "li", "strong"):
+        compact = _trim_tag_content(tag_name, compact)
+    return compact
+
+
 def normalize_legacy_ai_message_list(inner: str) -> str | None:
     disclaimer_match = AI_MESSAGE_HEADER_RE.match(inner)
     if not disclaimer_match:
@@ -527,11 +548,11 @@ def normalize_ai_authored_rich_text(value: str | None) -> str | None:
 
     legacy_list_normalized = normalize_legacy_ai_message_list(inner)
     if legacy_list_normalized is not None:
-        return legacy_list_normalized
+        return canonicalize_ai_authored_markup(legacy_list_normalized)
 
     # Leave already-block-structured content alone unless it matches the legacy single-list shape above.
     if re.search(r"<(ul|ol|blockquote|pre)\b", raw, flags=re.IGNORECASE):
-        return value
+        return canonicalize_ai_authored_markup(raw)
 
     disclaimer_match = AI_MESSAGE_HEADER_RE.match(inner)
     if not disclaimer_match:
@@ -552,7 +573,7 @@ def normalize_ai_authored_rich_text(value: str | None) -> str | None:
     normalized = render_ai_message_sections(sections)
     if normalized is None:
         return value
-    return normalized
+    return canonicalize_ai_authored_markup(normalized)
 
 
 def comment_payload_from_args(args: argparse.Namespace) -> dict[str, str]:
