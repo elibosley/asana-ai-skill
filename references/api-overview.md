@@ -87,6 +87,7 @@ The helper wraps JSON payloads in `data` automatically unless you pass `--no-wra
 - `POST /projects/{project_gid}/sections`
 - `GET /sections/{section_gid}`
 - `PUT /sections/{section_gid}`
+- `DELETE /sections/{section_gid}`
 - `POST /sections/{section_gid}/addTask`
 
 ### Teams, tags, and custom fields

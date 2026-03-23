@@ -54,17 +54,20 @@ The helper reads the PAT from `ASANA_ACCESS_TOKEN` first, then falls back to the
 18. Before posting or updating an AI-authored message, sanity-check how it will render in Asana: use block-style sections for narrative/status lines, `<strong>` for labels, and `<ul><li>` only for actual lists rather than relying on Markdown.
 19. After any write that creates or updates a task or story, include the returned Asana `review_url` in your user-facing reply so the user can click straight into the updated object. For story writes, also surface `target_review_url` when helpful so the user can review the parent task.
 20. The helper auto-normalizes AI disclaimer messages that arrive as one inline HTML blob or as the older single-list disclaimer format, and it now compacts AI-authored rich text before posting so indentation whitespace does not create phantom empty bullets in Asana.
-21. For My Tasks intake cleanup, prefer `inbox-cleanup` over manual section shuffling. It treats My Tasks as a project, creates `Review:` sections when needed, moves tasks without completing them, and only comments on high-confidence "likely ready to close" items.
+21. For My Tasks intake cleanup, prefer `inbox-cleanup` over manual section shuffling. Treat it as the default "work through my tasks with me" mechanism: it treats My Tasks as a project, creates `Review:` sections when needed, moves tasks without completing them, and only comments on high-confidence "likely ready to close" items.
 22. `inbox-cleanup` should default to the `Recently assigned` My Tasks section unless the user explicitly asks for a wider sweep such as `--all-open` or extra `--source-section` values.
 23. Use the helper's `skill_advertising` block when present. It summarizes My Tasks size, flags when `Recently assigned` is large enough to justify `inbox-cleanup`, and highlights other useful commands such as `task-bundle`, `project-assigned-tasks`, and `search-tasks`.
 24. `inbox-cleanup` now also emits a lightweight manager plan per task: work type, suggested next action, TODO list, and whether the task looks like a good candidate for immediate execution after asking the user.
-25. When the user wants the cleanup pass to act more like a personal PM, use `--manager-comments` to post AI-authored next-step comments, or `--comment-research-todos` to post only research TODO comments.
-26. Manager-plan comments must stay private-by-default. Do not emit them into tasks that appear shared through project membership or parent-task context; reserve those AI-authored PM comments for tasks that look private to the user's My Tasks.
-27. `inbox-cleanup` should now be treated as an active AI triage pass, not just a section-mover. It re-analyzes task comments, looks for linked PRs/URLs, assigns an `active_ai_action` like `ask_to_execute_now` or `ask_to_verify`, and surfaces which tasks are good candidates for immediate AI help after the user confirms.
-28. If the task changes this skill repo itself, treat it as a shipped skill update unless the user explicitly says not to release it yet.
-29. Before committing or pushing any skill change, run `python3 scripts/check_release.py`. Do not push until it passes.
-30. If `check_release.py` fails because release metadata is missing, run `python3 scripts/bump_version.py --part micro --title "Short release title"`, replace the scaffold line in `CHANGELOG.md` with a real user-facing summary, rerun `python3 scripts/check_release.py`, then commit and push.
-31. Never leave the top changelog entry on the placeholder text `Describe the user-visible change here.` If you bumped the version, you own writing the matching release note before you finish.
+25. When the user wants a catered system that helps them actually work through tasks, frame `inbox-cleanup` as a personal PM pass, not a filing pass. The desired output is: what this task really is, what should happen next, what the TODOs are, whether AI can execute now, and what should be asked back to the user before acting.
+26. When the user wants the cleanup pass to act more like a personal PM, use `--manager-comments` to post AI-authored next-step comments, or `--comment-research-todos` to post only research TODO comments.
+27. Manager-plan comments must stay private-by-default. Do not emit them into tasks that appear shared through project membership, parent-task context, non-assignee followers/collaborators, or comment history from anyone other than the assignee; reserve those AI-authored PM comments for tasks that look truly private to the user's My Tasks.
+28. `inbox-cleanup` should now be treated as an active AI triage pass, not just a section-mover. It re-analyzes task comments, looks for linked PRs/URLs, assigns an `active_ai_action` like `ask_to_execute_now` or `ask_to_verify`, and surfaces which tasks are good candidates for immediate AI help after the user confirms.
+29. When the user wants to retire old personal sections, prefer `close-out-sections` over ad hoc manual moves. It can preview exact source sections, move all tasks or only completed/incomplete tasks into a destination section, and only deletes the source section after it is actually empty.
+30. Treat some My Tasks columns as potentially undeletable even after they are empty. In particular, `Recently assigned` can usually be drained to zero tasks, but Asana may still refuse to remove the column, so present that outcome as "emptied but not removable" rather than retrying indefinitely.
+31. If the task changes this skill repo itself, treat it as a shipped skill update unless the user explicitly says not to release it yet.
+32. Before committing or pushing any skill change, run `python3 scripts/check_release.py`. Do not push until it passes.
+33. If `check_release.py` fails because release metadata is missing, run `python3 scripts/bump_version.py --part micro --title "Short release title"`, replace the scaffold line in `CHANGELOG.md` with a real user-facing summary, rerun `python3 scripts/check_release.py`, then commit and push.
+34. Never leave the top changelog entry on the placeholder text `Describe the user-visible change here.` If you bumped the version, you own writing the matching release note before you finish.
 
 ## AI Message Format
 
@@ -123,6 +126,8 @@ python3 scripts/asana_api.py inbox-cleanup --source-section "Recently assigned" 
 python3 scripts/asana_api.py inbox-cleanup --all-open --max-tasks 50
 python3 scripts/asana_api.py inbox-cleanup --manager-comments
 python3 scripts/asana_api.py inbox-cleanup --comment-research-todos --apply
+python3 scripts/asana_api.py close-out-sections <project_gid> --section "Old Section" --move-to "Work Completed" --completed-mode completed
+python3 scripts/asana_api.py close-out-sections <project_gid> --section "Old Section" --move-to "Work Completed" --completed-mode completed --apply
 python3 scripts/asana_api.py create-task --name "Follow up" --project <project_gid>
 python3 scripts/asana_api.py create-task --name "Follow up" --project <project_gid> --assignee "Eli Bosley"
 python3 scripts/asana_api.py update-task <task_gid> --completed true --assignee "eli@example.com"

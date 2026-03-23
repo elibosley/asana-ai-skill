@@ -115,8 +115,30 @@ Use `inbox-cleanup` when the question is "please sort my My Tasks intake into re
 It defaults to the `Recently assigned` section in My Tasks, creates `Review:` sections when missing, moves tasks without completing them, and posts an AI disclaimer comment only for tasks that look likely ready to close.
 It also returns a manager plan per task: work type, suggested next action, a TODO list, and whether the task looks like a good candidate for immediate execution after user confirmation.
 It also returns an `active_ai_action` per task, based on re-reading task comments and linked PR URLs, so the caller can distinguish `ask_to_execute_now`, `ask_to_verify`, `ask_to_follow_up`, `ask_to_close`, and `no_ai_action`.
+When the user wants help working through their tasks like a PM, treat `inbox-cleanup` as the main entry point. The intended behavior is not just "sort these" but "tell me what this task is, what should happen next, what AI can do now, and what question to ask me before acting."
+Manager comments are intentionally stricter than section triage. They should only post on tasks that look truly private: no shared project context, no parent-task context, no non-assignee followers/collaborators, and no comment history from anyone other than the assignee.
 Use `--manager-comments` when you want the helper to write AI-authored next-step comments into the tasks, and `--comment-research-todos` when you only want research-style TODO writeups.
 Keep the default scope narrow unless the user explicitly asks for a wider sweep.
+
+Close out stale personal sections by relocating tasks, then deleting the empty section:
+
+```bash
+python3 scripts/asana_api.py close-out-sections <project_gid> \
+  --section "Old Section" \
+  --move-to "Work Completed" \
+  --completed-mode completed
+
+python3 scripts/asana_api.py close-out-sections <project_gid> \
+  --section "Old Section" \
+  --section "Another Old Section" \
+  --move-to "Backlog" \
+  --completed-mode all \
+  --apply
+```
+
+Use `close-out-sections` when the question is "move everything out of these stale sections and remove them."
+It resolves source and destination sections by exact name or gid inside one project, supports preview mode by default, can move only completed tasks or only incomplete tasks, and deletes the source section only after a final emptiness check passes.
+For My Tasks, treat `Recently assigned` as a special case: it can often be emptied successfully, but Asana may still refuse to delete the column afterward. In that case, report it as emptied and stop instead of hammering the delete endpoint.
 
 ## Write operations
 

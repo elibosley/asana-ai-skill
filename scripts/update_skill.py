@@ -16,7 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -91,7 +91,7 @@ def write_state(state: dict[str, str]) -> None:
 
 
 def now_utc() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def version_file(repo_root: Path) -> Path:

@@ -55,8 +55,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def ensure_python() -> None:
-    if sys.version_info < (3, 10):
-        raise SystemExit("Python 3.10+ is required.")
+    if sys.version_info < (3, 9):
+        raise SystemExit("Python 3.9+ is required.")
 
 
 def safe_resolve(path: Path) -> Path | None:

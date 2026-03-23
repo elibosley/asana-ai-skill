@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.2.0.0] - 2026-03-23 — Personal PM Inbox Triage
+
+### Changed
+
+- **`inbox-cleanup` is now positioned as a personal PM workflow for My Tasks, not just a sorter.** The helper and skill docs now frame it around classifying what each task really is, proposing next actions and TODOs, surfacing what AI can execute now, and only posting manager-style comments when the task looks truly private to the assignee.
+- **Stale personal sections can now be retired with a dedicated close-out command.** The new `close-out-sections` workflow previews exact source sections, can move all/completed/incomplete tasks into a destination section, and deletes the original section only after it is confirmed empty, including clearer handling for non-removable My Tasks sections like `Recently assigned`.
+- **The skill is easier to install on older local runtimes.** Bootstrap and install now support Python 3.9+, and the updater avoids newer `datetime` APIs so managed refresh flows still work on older supported interpreters.
+
+## [0.1.0.10] - 2026-03-23 — Lower Python Version Floor
+
+### Changed
+
+- **The skill now supports Python 3.9+ instead of effectively requiring newer runtimes.** The bootstrap and install scripts now accept Python 3.9+, the README matches that lower floor, and the updater uses `timezone.utc` instead of the newer `datetime.UTC` constant so refresh workflows still run on older supported interpreters.
+
+## [0.1.0.9] - 2026-03-22 — Stricter Private PM Comment Guardrail
+
+### Fixed
+
+- **Personal PM comments now require a truly private task context.** The inbox cleanup helper will no longer post manager-plan comments just because a task lacks project membership; it now blocks those comments when the task has shared project context, a parent task, non-assignee followers/collaborators, or comment history from anyone other than the assignee.
+
+## [0.1.0.8] - 2026-03-22 — Document Non-Removable Recently Assigned
+
+### Changed
+
+- **The skill now documents that My Tasks `Recently assigned` may be emptyable but still non-removable.** The core skill instructions, cookbook, and README now tell agents to treat that column as a special case: drain it to zero tasks when asked, but if Asana refuses deletion afterward, report it as emptied rather than retrying forever.
+
+## [0.1.0.7] - 2026-03-22 — Inbox Cleanup As Personal PM
+
+### Changed
+
+- **Inbox cleanup is now documented as the preferred personal PM workflow for My Tasks.** The skill instructions, cookbook, UI metadata, and helper descriptions now steer agents to use `inbox-cleanup` not just for filing tasks into sections, but for classifying what each task is, proposing next actions and TODOs, and identifying what the AI can help execute immediately.
+
+## [0.1.0.6] - 2026-03-22 — Section Close-Out Workflow
+
+### Changed
+
+- **The skill can now retire stale Asana sections in one guided step.** The new `close-out-sections` command previews exact source sections, can relocate all tasks or only completed/incomplete tasks into another section, and deletes the original section only after it passes a final empty check. The helper docs and examples now also call out this workflow for My Tasks cleanup and personal category cleanup.
+
 ## [0.1.0.5] - 2026-03-22 — Release Guard For Skill Updates
 
 ### Changed

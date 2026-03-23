@@ -309,6 +309,38 @@ def find_cached_record(
     raise SystemExit(f"Ambiguous cached {bucket_name[:-1]} identifier '{token}': {match_list}")
 
 
+def find_section_record(
+    sections: list[dict[str, Any]],
+    identifier: str | None,
+) -> dict[str, Any]:
+    token = str(identifier or "").strip()
+    if not token:
+        raise SystemExit("Missing section identifier.")
+
+    if is_gid_like(token):
+        for section in sections:
+            if str(section.get("gid") or "").strip() == token:
+                return dict(section)
+        raise SystemExit(f"No section with gid '{token}' exists in this project.")
+
+    lowered = normalize_match_key(token)
+    matches = [
+        dict(section)
+        for section in sections
+        if normalize_match_key(section.get("name")) == lowered
+    ]
+    if not matches:
+        raise SystemExit(f"No section named '{token}' exists in this project.")
+    if len(matches) == 1:
+        return matches[0]
+
+    match_list = ", ".join(
+        f"{section.get('name', section.get('gid'))} ({section.get('gid')})"
+        for section in matches
+    )
+    raise SystemExit(f"Ambiguous section identifier '{token}': {match_list}")
+
+
 def user_cache_record(user: dict[str, Any]) -> dict[str, Any]:
     return {
         "gid": user.get("gid"),
@@ -863,6 +895,8 @@ def my_tasks_task_detail_fields(default: str | None = None) -> str:
         "gid,name,notes,html_notes,resource_subtype,completed,completed_at,created_at,"
         "modified_at,due_on,due_at,permalink_url,parent.gid,parent.name,"
         "assignee_status,assignee_section.gid,assignee_section.name,"
+        "assignee.gid,assignee.name,followers.gid,followers.name,"
+        "collaborators.gid,collaborators.name,"
         "projects.gid,projects.name,memberships.project.gid,memberships.project.name,"
         "memberships.section.gid,memberships.section.name,custom_fields.gid,"
         "custom_fields.name,custom_fields.resource_subtype,custom_fields.display_value,"
@@ -971,7 +1005,32 @@ def task_project_names(task: dict[str, Any]) -> list[str]:
     return names
 
 
-def task_is_shared_for_manager_comments(task: dict[str, Any]) -> tuple[bool, str | None]:
+def story_author_gids(stories: list[dict[str, Any]]) -> set[str]:
+    author_gids: set[str] = set()
+    for story in comment_stories_only(stories):
+        created_by = story.get("created_by") or {}
+        author_gid = str(created_by.get("gid") or "").strip()
+        if author_gid:
+            author_gids.add(author_gid)
+    return author_gids
+
+
+def task_participant_gids(task: dict[str, Any], field_name: str) -> set[str]:
+    gids: set[str] = set()
+    for participant in task.get(field_name, []) or []:
+        if not isinstance(participant, dict):
+            continue
+        participant_gid = str(participant.get("gid") or "").strip()
+        if participant_gid:
+            gids.add(participant_gid)
+    return gids
+
+
+def task_is_shared_for_manager_comments(
+    task: dict[str, Any],
+    stories: list[dict[str, Any]],
+) -> tuple[bool, str | None]:
+    owner_gid = str(((task.get("assignee") or {}).get("gid")) or "").strip()
     project_names = task_project_names(task)
     membership_labels = task_membership_labels(task)
     parent = task.get("parent") or {}
@@ -979,6 +1038,20 @@ def task_is_shared_for_manager_comments(task: dict[str, Any]) -> tuple[bool, str
         return True, "Task belongs to a project/section that is likely shared with others."
     if isinstance(parent, dict) and parent.get("gid"):
         return True, "Task is a subtask/child task and may be visible in shared parent context."
+    if not owner_gid:
+        return True, "Task has no clear personal owner, so AI PM comments stay disabled."
+
+    follower_gids = task_participant_gids(task, "followers")
+    if follower_gids - {owner_gid}:
+        return True, "Task has followers other than the assignee, so it is treated as shared."
+
+    collaborator_gids = task_participant_gids(task, "collaborators")
+    if collaborator_gids - {owner_gid}:
+        return True, "Task has collaborators other than the assignee, so it is treated as shared."
+
+    commenter_gids = story_author_gids(stories)
+    if commenter_gids - {owner_gid}:
+        return True, "Task has comment history from other people, so it is treated as shared."
     return False, None
 
 
@@ -1342,7 +1415,7 @@ def classify_inbox_cleanup_task(task_context: dict[str, Any], now: datetime) -> 
         reasons.extend(recent_comment_lines[:2])
 
     work_type = infer_task_work_type(combined_text, name)
-    shared_for_manager_comments, shared_reason = task_is_shared_for_manager_comments(task)
+    shared_for_manager_comments, shared_reason = task_is_shared_for_manager_comments(task, stories)
     substantive_manager_context = has_substantive_manager_context(
         task=task,
         recent_comment_lines=recent_comment_lines,
@@ -1527,11 +1600,11 @@ def skill_feature_highlights() -> list[dict[str, str]]:
     return [
         {
             "command": "python3 scripts/asana_api.py inbox-cleanup --apply",
-            "use_when": "Sort My Tasks into review states without completing tasks.",
+            "use_when": "Work through My Tasks like a personal PM: classify the work, suggest next actions, and sort it into review states without completing tasks.",
         },
         {
             "command": "python3 scripts/asana_api.py inbox-cleanup --manager-comments",
-            "use_when": "Have the cleanup pass act more like a personal PM by drafting next-step comments.",
+            "use_when": "Have the cleanup pass act more like a personal PM by drafting next-step comments on private My Tasks.",
         },
         {
             "command": "python3 scripts/asana_api.py task-bundle <task_gid> --project-gid <project_gid>",
@@ -1540,6 +1613,10 @@ def skill_feature_highlights() -> list[dict[str, str]]:
         {
             "command": "python3 scripts/asana_api.py project-assigned-tasks <project_gid> --completed false --include-task-position --include-comments --comment-limit 3 --include-attachments",
             "use_when": "Get your actual assigned work in one project with triage context.",
+        },
+        {
+            "command": "python3 scripts/asana_api.py close-out-sections <project_gid> --section \"Old Section\" --move-to \"Work Completed\" --completed-mode completed --apply",
+            "use_when": "Relocate tasks out of stale personal sections, then delete the section once it is empty.",
         },
         {
             "command": "python3 scripts/asana_api.py search-tasks --text \"<query>\" --assignee me",
@@ -1709,6 +1786,10 @@ def task_opt_fields(default: str | None = None) -> str:
     )
 
 
+def section_close_out_task_opt_fields(default: str | None = None) -> str:
+    return default or "gid,name,completed,completed_at,permalink_url"
+
+
 def project_assigned_task_opt_fields(default: str | None = None) -> str:
     return default or (
         "gid,name,completed,assignee.gid,assignee.name,due_on,due_at,permalink_url,"
@@ -1733,7 +1814,7 @@ def tag_opt_fields(default: str | None = None) -> str:
 
 
 def story_opt_fields(default: str | None = None) -> str:
-    return default or "gid,created_at,created_by.name,text,html_text,type,resource_subtype"
+    return default or "gid,created_at,created_by.gid,created_by.name,text,html_text,type,resource_subtype"
 
 
 def story_detail_opt_fields(default: str | None = None) -> str:
@@ -1826,6 +1907,42 @@ def section_task_positions_map(
             if isinstance(section_task, dict) and section_task.get("gid")
         }
     return positions_by_section
+
+
+def fetch_all_section_tasks(
+    token: str,
+    section_gid: str,
+    *,
+    opt_fields: str | None = None,
+    limit_pages: int = 0,
+) -> list[dict[str, Any]]:
+    response = api_request(
+        token=token,
+        method="GET",
+        path_or_url=f"/sections/{section_gid}/tasks",
+        query={
+            "opt_fields": opt_fields or section_close_out_task_opt_fields(),
+            "limit": "100",
+        },
+    )
+    response = maybe_paginate(token, response, True, limit_pages)
+    data = response.get("data", [])
+    if not isinstance(data, list):
+        return []
+    return [task for task in data if isinstance(task, dict)]
+
+
+def select_section_tasks(
+    tasks: list[dict[str, Any]],
+    completed_mode: str,
+) -> list[dict[str, Any]]:
+    if completed_mode == "all":
+        return list(tasks)
+    if completed_mode == "completed":
+        return [task for task in tasks if bool(task.get("completed"))]
+    if completed_mode == "incomplete":
+        return [task for task in tasks if not bool(task.get("completed"))]
+    raise SystemExit(f"Unsupported completed mode: {completed_mode}")
 
 
 def command_request(args: argparse.Namespace) -> Any:
@@ -2130,6 +2247,192 @@ def command_update_section(args: argparse.Namespace) -> Any:
     )
     print_json(response, args.compact)
     return response
+
+
+def command_close_out_sections(args: argparse.Namespace) -> Any:
+    token = get_token(args)
+    sections_response = api_request(
+        token=token,
+        method="GET",
+        path_or_url=f"/projects/{args.project_gid}/sections",
+        query={"opt_fields": section_opt_fields("gid,name,project.gid,project.name")},
+    )
+    project_sections = sections_response.get("data", [])
+    if not isinstance(project_sections, list):
+        raise SystemExit("Failed to load project sections.")
+
+    source_sections: list[dict[str, Any]] = []
+    seen_source_gids: set[str] = set()
+    for identifier in args.section:
+        section = find_section_record(project_sections, identifier)
+        section_gid = str(section.get("gid") or "").strip()
+        if not section_gid or section_gid in seen_source_gids:
+            continue
+        source_sections.append(section)
+        seen_source_gids.add(section_gid)
+
+    destination_section = None
+    if args.move_to:
+        destination_section = find_section_record(project_sections, args.move_to)
+        destination_gid = str(destination_section.get("gid") or "").strip()
+        if destination_gid in seen_source_gids:
+            raise SystemExit("Destination section must be different from every source section.")
+
+    project_name = ""
+    if source_sections:
+        project_name = str(((source_sections[0].get("project") or {}).get("name")) or "")
+
+    section_results: list[dict[str, Any]] = []
+    total_moved = 0
+    total_deleted = 0
+    for source_section in source_sections:
+        source_gid = str(source_section.get("gid") or "").strip()
+        source_name = str(source_section.get("name") or source_gid)
+        tasks = fetch_all_section_tasks(
+            token,
+            source_gid,
+            opt_fields=section_close_out_task_opt_fields(),
+            limit_pages=args.limit_pages,
+        )
+        selected_tasks = select_section_tasks(tasks, args.completed_mode)
+        selected_task_gids = {
+            str(task.get("gid") or "").strip()
+            for task in selected_tasks
+            if str(task.get("gid") or "").strip()
+        }
+        remaining_tasks = [
+            task
+            for task in tasks
+            if str(task.get("gid") or "").strip() not in selected_task_gids
+        ]
+        completed_count = sum(1 for task in tasks if bool(task.get("completed")))
+        incomplete_count = len(tasks) - completed_count
+
+        result: dict[str, Any] = {
+            "source_section": {
+                "gid": source_gid,
+                "name": source_name,
+            },
+            "destination_section": (
+                {
+                    "gid": str(destination_section.get("gid") or ""),
+                    "name": str(destination_section.get("name") or ""),
+                }
+                if destination_section
+                else None
+            ),
+            "task_count": len(tasks),
+            "completed_count": completed_count,
+            "incomplete_count": incomplete_count,
+            "selected_task_count": len(selected_tasks),
+            "remaining_task_count_after_selected_moves": len(remaining_tasks),
+            "completed_mode": args.completed_mode,
+            "apply": bool(args.apply),
+            "sample_tasks": [
+                {
+                    "gid": str(task.get("gid") or ""),
+                    "name": task.get("name"),
+                    "completed": bool(task.get("completed")),
+                }
+                for task in tasks[:5]
+            ],
+            "selected_sample_tasks": [
+                {
+                    "gid": str(task.get("gid") or ""),
+                    "name": task.get("name"),
+                    "completed": bool(task.get("completed")),
+                }
+                for task in selected_tasks[:5]
+            ],
+            "planned_actions": {
+                "move_selected_tasks": bool(destination_section and selected_tasks),
+                "delete_after_move": len(remaining_tasks) == 0,
+            },
+        }
+
+        moved_tasks: list[dict[str, Any]] = []
+        delete_attempted = False
+        deleted = False
+        blocked_reason = None
+
+        if args.apply:
+            if destination_section:
+                destination_gid = str(destination_section.get("gid") or "").strip()
+                for task in selected_tasks:
+                    task_gid = str(task.get("gid") or "").strip()
+                    if not task_gid:
+                        continue
+                    api_request(
+                        token=token,
+                        method="POST",
+                        path_or_url=f"/tasks/{task_gid}/addProject",
+                        json_body={
+                            "data": {
+                                "project": args.project_gid,
+                                "section": destination_gid,
+                            }
+                        },
+                    )
+                    moved_tasks.append(
+                        {
+                            "gid": task_gid,
+                            "name": task.get("name"),
+                            "completed": bool(task.get("completed")),
+                            "permalink_url": task.get("permalink_url"),
+                        }
+                    )
+                total_moved += len(moved_tasks)
+
+            remaining_probe = api_request(
+                token=token,
+                method="GET",
+                path_or_url=f"/sections/{source_gid}/tasks",
+                query={"opt_fields": "gid,name,completed", "limit": "1"},
+            )
+            remaining_data = remaining_probe.get("data", [])
+            has_remaining_tasks = isinstance(remaining_data, list) and bool(remaining_data)
+            delete_attempted = True
+            if has_remaining_tasks:
+                if not destination_section and tasks:
+                    blocked_reason = (
+                        "Section still has tasks and no destination section was provided."
+                    )
+                elif remaining_tasks:
+                    blocked_reason = (
+                        "Section still has tasks after moving the selected subset."
+                    )
+                else:
+                    blocked_reason = "Section still has tasks after the move request."
+            else:
+                api_request(
+                    token=token,
+                    method="DELETE",
+                    path_or_url=f"/sections/{source_gid}",
+                )
+                deleted = True
+                total_deleted += 1
+
+        result["applied_actions"] = {
+            "moved_task_count": len(moved_tasks),
+            "moved_tasks": moved_tasks,
+            "delete_attempted": delete_attempted,
+            "deleted": deleted,
+            "blocked_reason": blocked_reason,
+        }
+        section_results.append(result)
+
+    payload = {
+        "project_gid": args.project_gid,
+        "project_name": project_name,
+        "section_count": len(section_results),
+        "completed_mode": args.completed_mode,
+        "apply": bool(args.apply),
+        "moved_task_count": total_moved,
+        "deleted_section_count": total_deleted,
+        "sections": section_results,
+    }
+    print_json(payload, args.compact)
+    return payload
 
 
 def command_task_stories(args: argparse.Namespace) -> Any:
@@ -3574,6 +3877,41 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_output_flags(update_section_parser)
     update_section_parser.set_defaults(func=command_update_section)
 
+    close_out_sections_parser = subparsers.add_parser(
+        "close-out-sections",
+        help="Relocate tasks out of section(s) and delete the section(s) once empty",
+    )
+    close_out_sections_parser.add_argument("project_gid")
+    close_out_sections_parser.add_argument(
+        "--section",
+        action="append",
+        required=True,
+        help="Source section gid or exact name; pass multiple times for multiple sections",
+    )
+    close_out_sections_parser.add_argument(
+        "--move-to",
+        help="Destination section gid or exact name within the same project",
+    )
+    close_out_sections_parser.add_argument(
+        "--completed-mode",
+        choices=("all", "completed", "incomplete"),
+        default="all",
+        help="Which tasks to relocate before attempting deletion",
+    )
+    close_out_sections_parser.add_argument(
+        "--limit-pages",
+        type=int,
+        default=0,
+        help="Stop section task pagination after N pages while collecting tasks",
+    )
+    close_out_sections_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Move selected tasks and delete sections that end up empty",
+    )
+    add_common_output_flags(close_out_sections_parser)
+    close_out_sections_parser.set_defaults(func=command_close_out_sections)
+
     search_parser = subparsers.add_parser("search-tasks", help="Search tasks within a workspace")
     search_parser.add_argument("--text", required=True, help="Search text")
     search_parser.add_argument("--workspace", help="Workspace GID override")
@@ -3588,7 +3926,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     inbox_cleanup_parser = subparsers.add_parser(
         "inbox-cleanup",
-        help="Triage My Tasks intake into Review sections and optionally comment on likely-ready-to-close tasks",
+        help="Work through My Tasks intake like a personal PM: triage into Review sections, suggest next actions, and optionally post AI comments",
     )
     inbox_cleanup_parser.add_argument("--workspace", help="Workspace GID override")
     inbox_cleanup_parser.add_argument(
