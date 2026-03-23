@@ -158,7 +158,7 @@ Helpful commands:
 ```bash
 cat VERSION
 python3 scripts/check_release.py
-python3 scripts/bump_version.py --part micro --title "Short release title"
+python3 scripts/bump_version.py --part auto --title "Short release title"
 python3 scripts/update_skill.py --force
 ```
 
@@ -166,7 +166,8 @@ python3 scripts/update_skill.py --force
 
 If you changed the skill itself, do not push it like a normal one-off repo tweak. Treat it as a versioned skill release.
 
-1. Run `python3 scripts/bump_version.py --part micro --title "Short release title"`.
+1. Run `python3 scripts/bump_version.py --part auto --title "Short release title"`.
+   Let the helper pick the semantically correct bump from the current diff unless you intentionally need to override it.
 2. Replace the scaffold text in `CHANGELOG.md` with a real user-facing summary.
 3. Run `python3 scripts/check_release.py`.
 4. Commit and push only after the release check passes.

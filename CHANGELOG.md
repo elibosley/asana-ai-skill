@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0.0] - 2026-03-23 — Semantic Release Bump Guidance
+
+### Changed
+
+- **The release helper now recommends semantic version bumps from the current diff instead of defaulting everything to micro.** `scripts/bump_version.py` supports `--part auto`, classifies the current repo changes into `major`, `minor`, `patch`, or `micro` from the changed files and public CLI surface, and reports the reasoning so maintainers can keep release bumps aligned with what actually changed.
+- **Version bumps now always end with commit-and-push guidance.** After writing `VERSION` and scaffolding `CHANGELOG.md`, the helper now prints explicit next steps for running the release check, committing the release, and pushing the branch, and the maintainer docs plus release-check failure guidance now steer agents toward that full workflow.
+
 ## [0.2.0.0] - 2026-03-23 — Personal PM Inbox Triage
 
 ### Changed

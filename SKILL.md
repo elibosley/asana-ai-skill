@@ -66,7 +66,7 @@ The helper reads the PAT from `ASANA_ACCESS_TOKEN` first, then falls back to the
 30. Treat some My Tasks columns as potentially undeletable even after they are empty. In particular, `Recently assigned` can usually be drained to zero tasks, but Asana may still refuse to remove the column, so present that outcome as "emptied but not removable" rather than retrying indefinitely.
 31. If the task changes this skill repo itself, treat it as a shipped skill update unless the user explicitly says not to release it yet.
 32. Before committing or pushing any skill change, run `python3 scripts/check_release.py`. Do not push until it passes.
-33. If `check_release.py` fails because release metadata is missing, run `python3 scripts/bump_version.py --part micro --title "Short release title"`, replace the scaffold line in `CHANGELOG.md` with a real user-facing summary, rerun `python3 scripts/check_release.py`, then commit and push.
+33. If `check_release.py` fails because release metadata is missing, run `python3 scripts/bump_version.py --part auto --title "Short release title"`. Let the helper choose the semantically correct bump from the current diff unless the user explicitly wants an override. Replace the scaffold line in `CHANGELOG.md` with a real user-facing summary, rerun `python3 scripts/check_release.py`, then commit and push.
 34. Never leave the top changelog entry on the placeholder text `Describe the user-visible change here.` If you bumped the version, you own writing the matching release note before you finish.
 
 ## AI Message Format
@@ -105,7 +105,7 @@ python3 scripts/asana_api.py teams
 python3 scripts/asana_api.py users
 python3 scripts/asana_api.py show-cache
 python3 scripts/check_release.py
-python3 scripts/bump_version.py --part micro --title "Short release title"
+python3 scripts/bump_version.py --part auto --title "Short release title"
 python3 scripts/asana_api.py workspace-custom-fields
 python3 scripts/asana_api.py projects --team <team_gid>
 python3 scripts/asana_api.py project-tasks <project_gid>

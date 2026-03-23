@@ -102,9 +102,11 @@ def fail(message: str) -> None:
     raise SystemExit(
         f"{message}\n\n"
         "Fix:\n"
-        '  python3 scripts/bump_version.py --part micro --title "Short release title"\n'
+        '  python3 scripts/bump_version.py --part auto --title "Short release title"\n'
         "  edit CHANGELOG.md to replace the scaffold text with a real user-facing summary\n"
         "  python3 scripts/check_release.py\n"
+        '  git commit -m "chore(asana): release vX.Y.Z.W"\n'
+        "  git push origin <branch>\n"
     )
 
 
