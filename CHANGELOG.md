@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.0.0.0] - 2026-03-25 — Workflow advisor and rule triggers
+
+### Changed
+
+- **Board view now supports workflow context analysis.** `board <project_gid> --context` enriches the standard board output with per-section task counts, custom field coverage stats, due date coverage, assignee distribution, and staleness buckets (7/14/30+ days) so the AI layer can detect bottlenecks and recommend Asana rules.
+- **Existing Asana rules can now be triggered programmatically.** `trigger-rule <trigger_identifier> --task <task_gid>` fires rules configured with "Incoming web request" triggers, with optional `--action-data key=value` pairs for dynamic variables.
+- **New workflow patterns reference guides AI-driven rule recommendations.** `references/workflow-patterns.md` documents common bottleneck patterns (section pile-ups, stale tasks, missing fields) with specific Asana rule templates and step-by-step UI creation instructions.
+
+## [0.4.0.0] - 2026-03-24 — Daily briefing mode
+
+### Changed
+
+- **My Tasks now has a dedicated daily briefing command for morning planning.** `python3 scripts/asana_api.py daily-briefing` builds a read-only command center over open My Tasks, and `--markdown` renders it as a link-rich briefing with buckets like `Execute Now`, `Release / Ship Watch`, `Needs Verification`, `Needs Follow-Up`, and `Background / Not Today`.
+- **Done-like project columns no longer masquerade as fresh execution work in the morning plan.** When a task has code or PR context but its project state already says things like `Test`, `Staging`, `QA`, or `Production`, the briefing now keeps it in ship-watch or verification buckets instead of telling the agent to start implementing again.
+- **The skill now advertises and documents the morning command center workflow directly.** Discovery hints, maintainer instructions, cookbook recipes, and the OpenAI metadata now all steer agents toward `daily-briefing` for a full morning overview and reserve `inbox-cleanup` for the more active personal PM triage flow.
+
 ## [0.3.0.0] - 2026-03-23 — Semantic Release Bump Guidance
 
 ### Changed

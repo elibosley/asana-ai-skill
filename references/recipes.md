@@ -6,6 +6,7 @@
 - Write operations
 - Relationship operations
 - Attachments and advanced requests
+- Workflow analysis and rule triggers
 
 All commands below use:
 
@@ -119,6 +120,28 @@ When the user wants help working through their tasks like a PM, treat `inbox-cle
 Manager comments are intentionally stricter than section triage. They should only post on tasks that look truly private: no shared project context, no parent-task context, no non-assignee followers/collaborators, and no comment history from anyone other than the assignee.
 Use `--manager-comments` when you want the helper to write AI-authored next-step comments into the tasks, and `--comment-research-todos` when you only want research-style TODO writeups.
 Keep the default scope narrow unless the user explicitly asks for a wider sweep.
+
+Build a full morning command center for My Tasks:
+
+```bash
+python3 scripts/asana_api.py daily-briefing
+python3 scripts/asana_api.py daily-briefing --markdown
+python3 scripts/asana_api.py daily-briefing --markdown --max-tasks 50
+```
+
+Use `daily-briefing` when the question is "what should I focus on this morning?" or "give me the full command center for my tasks."
+It is intentionally read-only and returns direct links for every surfaced task.
+Unlike `inbox-cleanup`, it does not try to move tasks between sections.
+Instead it turns the existing task analysis into buckets like:
+
+- `Execute Now`
+- `Release / Ship Watch`
+- `Needs Verification`
+- `Needs Follow-Up`
+- `Likely Ready To Close`
+- `Background / Not Today`
+
+Project columns matter here. If a task has PR/code context but the project state already says `Done`, `Test`, `Staging`, `QA`, or `Production`, the briefing should not present it as new execution work. It belongs in ship-watch or verification instead.
 
 Close out stale personal sections by relocating tasks, then deleting the empty section:
 
@@ -320,3 +343,40 @@ Run a batch request through the convenience wrapper:
 python3 scripts/asana_api.py batch \
   --actions '[{"method":"get","relative_path":"/users/me"},{"method":"get","relative_path":"/projects/<project_gid>"}]'
 ```
+
+## Workflow analysis and rule triggers
+
+Get a board snapshot with workflow context stats (custom field coverage, staleness, assignee distribution):
+
+```bash
+python3 scripts/asana_api.py board <project_gid> --context
+```
+
+The `--context` flag enriches the standard board output with a `context` key containing:
+- `project_summary`: total/completed/incomplete counts per section with percentages
+- `custom_field_coverage`: which fields are filled and how consistently
+- `date_coverage`: due date usage and overdue count
+- `assignee_distribution`: who owns what, and how many tasks are unassigned
+- `staleness`: how many tasks haven't been modified in 7/14/30+ days
+
+Use this output together with `references/workflow-patterns.md` to recommend specific
+Asana rules the user should create in the UI.
+
+Trigger an existing Asana rule that has a "web request received" trigger:
+
+```bash
+python3 scripts/asana_api.py trigger-rule <trigger_identifier> --task <task_gid>
+```
+
+Trigger with custom action data (available as dynamic variables in the rule's actions):
+
+```bash
+python3 scripts/asana_api.py trigger-rule <trigger_identifier> \
+  --task <task_gid> \
+  --action-data status=approved \
+  --action-data reviewer=jane
+```
+
+To find the trigger identifier: open the project in Asana, go to Customize > Rules,
+create or edit a rule with an "Incoming web request" trigger, and copy the identifier
+from the trigger URL shown in the rule configuration.

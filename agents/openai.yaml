@@ -1,4 +1,4 @@
 interface:
   display_name: "Asana"
   short_description: "Read and write Asana data"
-  default_prompt: "Use $asana to inspect or update Asana tasks, projects, teams, and workspace data. For project pull lists, prefer contextual assigned-task pulls over raw checklists. For My Tasks inbox cleanup, prefer inbox-cleanup as a personal PM workflow that classifies the work, suggests next actions, and identifies what AI can do now. After write operations, surface the returned review_url so the user can review the updated Asana object."
+  default_prompt: "Use $asana to inspect or update Asana tasks, projects, teams, and workspace data. For project pull lists, prefer contextual assigned-task pulls over raw checklists. For My Tasks morning planning, prefer daily-briefing as a read-only command center with direct task links and done-like column handling, and use inbox-cleanup when the user specifically wants a personal PM triage pass that can classify work and reorganize review sections. After write operations, surface the returned review_url so the user can review the updated Asana object."

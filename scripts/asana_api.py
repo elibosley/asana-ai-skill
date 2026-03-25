@@ -51,6 +51,18 @@ INBOX_CLEANUP_REVIEW_SECTIONS = {
     "backlog_cleanup": "Review: Backlog Cleanup",
 }
 DEFAULT_INBOX_CLEANUP_SOURCE_SECTIONS = ("Recently assigned",)
+DAILY_BRIEFING_DONE_LIKE_PATTERN = re.compile(
+    r"\b(done|test|testing|staging|qa|production|complete|completed|released|shipped)\b",
+    re.IGNORECASE,
+)
+DAILY_BRIEFING_ADMIN_NOISE_PATTERN = re.compile(
+    r"\b(goal|goals|trainual|1:1|one on one|travel|reminder|birthday|shopping)\b",
+    re.IGNORECASE,
+)
+DAILY_BRIEFING_URGENT_PATTERN = re.compile(
+    r"\b(urgent|today|asap|overdue|priority)\b",
+    re.IGNORECASE,
+)
 
 
 def token_file() -> Path:
@@ -389,8 +401,7 @@ def get_token(args: argparse.Namespace) -> str:
     file_path = token_file()
 
     token = (
-        getattr(args, "token", None)
-        or os.environ.get("ASANA_ACCESS_TOKEN")
+        os.environ.get("ASANA_ACCESS_TOKEN")
         or (file_path.read_text().strip() if file_path.exists() else "")
     )
     if not token:
@@ -1590,8 +1601,8 @@ def advertising_message_for_my_tasks(summary: dict[str, Any]) -> dict[str, Any]:
     elif review_count > 0:
         recommendation = {
             "priority": "low",
-            "message": f"My Tasks already has {review_count} tasks in Review sections.",
-            "command": "python3 scripts/asana_api.py inbox-cleanup --all-open",
+            "message": f"My Tasks already has {review_count} tasks in Review sections. Start with a morning command center before doing another cleanup pass.",
+            "command": "python3 scripts/asana_api.py daily-briefing --markdown",
         }
     return recommendation
 
@@ -1605,6 +1616,10 @@ def skill_feature_highlights() -> list[dict[str, str]]:
         {
             "command": "python3 scripts/asana_api.py inbox-cleanup --manager-comments",
             "use_when": "Have the cleanup pass act more like a personal PM by drafting next-step comments on private My Tasks.",
+        },
+        {
+            "command": "python3 scripts/asana_api.py daily-briefing --markdown",
+            "use_when": "Generate a full morning command center with task links, release-watch detection, and prioritized action buckets.",
         },
         {
             "command": "python3 scripts/asana_api.py task-bundle <task_gid> --project-gid <project_gid>",
@@ -1776,7 +1791,6 @@ def resolve_many_user_identifiers(
 
 def add_common_output_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--compact", action="store_true", help="Print compact JSON")
-    parser.add_argument("--token", help="Override PAT instead of using env/token file")
 
 
 def task_opt_fields(default: str | None = None) -> str:
@@ -2549,10 +2563,155 @@ def command_task_status(args: argparse.Namespace) -> Any:
     return payload
 
 
+def compute_board_context(
+    section_payloads: list[dict[str, Any]], now: datetime
+) -> dict[str, Any]:
+    """Compute workflow-relevant stats from board section/task data.
+
+    Pure function: takes already-fetched section payloads (each with a
+    ``tasks`` list) and returns aggregated stats the AI layer uses to
+    recommend workflow optimisations.
+    """
+
+    all_tasks: list[dict[str, Any]] = []
+    section_summaries: list[dict[str, Any]] = []
+    for sp in section_payloads:
+        tasks = sp.get("tasks", [])
+        all_tasks.extend(tasks)
+        completed = sum(1 for t in tasks if t.get("completed"))
+        section_summaries.append({
+            "name": sp.get("name"),
+            "gid": sp.get("gid"),
+            "total": len(tasks),
+            "completed": completed,
+            "incomplete": len(tasks) - completed,
+        })
+
+    total = len(all_tasks)
+    completed_total = sum(1 for t in all_tasks if t.get("completed"))
+
+    # Compute pct_of_project for each section
+    for ss in section_summaries:
+        ss["pct_of_project"] = round(ss["total"] / total * 100, 1) if total else 0.0
+
+    # Custom field coverage
+    field_counts: dict[str, dict[str, Any]] = {}
+    for task in all_tasks:
+        for cf in task.get("custom_fields", []):
+            gid = cf.get("gid", "")
+            if gid not in field_counts:
+                field_counts[gid] = {
+                    "name": cf.get("name"),
+                    "gid": gid,
+                    "type": cf.get("resource_subtype", cf.get("type", "")),
+                    "filled_count": 0,
+                    "total_applicable": 0,
+                }
+            field_counts[gid]["total_applicable"] += 1
+            if cf.get("display_value"):
+                field_counts[gid]["filled_count"] += 1
+
+    field_coverage = []
+    for fc in field_counts.values():
+        ta = fc["total_applicable"]
+        fc["coverage_pct"] = round(fc["filled_count"] / ta * 100, 1) if ta else 0.0
+        field_coverage.append(fc)
+
+    # Date coverage
+    with_due = sum(1 for t in all_tasks if t.get("due_on") or t.get("due_at"))
+    overdue = 0
+    for t in all_tasks:
+        if t.get("completed"):
+            continue
+        due = t.get("due_on") or (t.get("due_at") or "")[:10]
+        if due:
+            try:
+                if datetime.strptime(due, "%Y-%m-%d").replace(tzinfo=timezone.utc) < now:
+                    overdue += 1
+            except ValueError:
+                pass
+
+    # Assignee distribution
+    assigned = 0
+    unassigned = 0
+    by_assignee: dict[str, dict[str, Any]] = {}
+    for t in all_tasks:
+        assignee = t.get("assignee")
+        if assignee and assignee.get("name"):
+            assigned += 1
+            key = assignee.get("gid", assignee["name"])
+            if key not in by_assignee:
+                by_assignee[key] = {"name": assignee["name"], "gid": assignee.get("gid", ""), "count": 0}
+            by_assignee[key]["count"] += 1
+        else:
+            unassigned += 1
+
+    # Staleness
+    buckets = {"within_7d": 0, "8_to_14d": 0, "15_to_30d": 0, "over_30d": 0}
+    oldest_stale: dict[str, Any] | None = None
+    for t in all_tasks:
+        mod = t.get("modified_at")
+        if not mod:
+            continue
+        try:
+            mod_dt = datetime.fromisoformat(mod.replace("Z", "+00:00"))
+            days = (now - mod_dt).days
+        except (ValueError, TypeError):
+            continue
+        if days <= 7:
+            buckets["within_7d"] += 1
+        elif days <= 14:
+            buckets["8_to_14d"] += 1
+        elif days <= 30:
+            buckets["15_to_30d"] += 1
+        else:
+            buckets["over_30d"] += 1
+            if oldest_stale is None or days > oldest_stale["days_stale"]:
+                oldest_stale = {"name": t.get("name", ""), "gid": t.get("gid", ""), "days_stale": days}
+
+    return {
+        "project_summary": {
+            "total_tasks": total,
+            "completed_tasks": completed_total,
+            "incomplete_tasks": total - completed_total,
+            "sections": section_summaries,
+        },
+        "custom_field_coverage": {"fields": field_coverage},
+        "date_coverage": {
+            "with_due_date": with_due,
+            "without_due_date": total - with_due,
+            "coverage_pct": round(with_due / total * 100, 1) if total else 0.0,
+            "overdue": overdue,
+        },
+        "assignee_distribution": {
+            "assigned": assigned,
+            "unassigned": unassigned,
+            "by_assignee": sorted(by_assignee.values(), key=lambda x: x["count"], reverse=True),
+        },
+        "staleness": {
+            "modified_within_7d": buckets["within_7d"],
+            "modified_8_to_14d": buckets["8_to_14d"],
+            "modified_15_to_30d": buckets["15_to_30d"],
+            "modified_over_30d": buckets["over_30d"],
+            "oldest_stale_task": oldest_stale,
+        },
+    }
+
+
 def command_project_board(args: argparse.Namespace) -> Any:
     token = get_token(args)
     sections, order_map = section_order_map(token, args.project_gid)
     section_payloads: list[dict[str, Any]] = []
+
+    context_mode = getattr(args, "context", False)
+    default_fields = (
+        "gid,name,completed,completed_at,assignee.gid,assignee.name,due_on,due_at,"
+        "modified_at,custom_fields.gid,custom_fields.name,custom_fields.resource_subtype,"
+        "custom_fields.display_value"
+        if context_mode
+        else "gid,name,completed,completed_at,assignee.name,due_on,due_at,"
+        "custom_fields.name,custom_fields.display_value"
+    )
 
     for section in sections:
         section_gid = section.get("gid")
@@ -2561,9 +2720,7 @@ def command_project_board(args: argparse.Namespace) -> Any:
             method="GET",
             path_or_url=f"/sections/{section_gid}/tasks",
             query={
-                "opt_fields": args.opt_fields
-                or "gid,name,completed,completed_at,assignee.name,due_on,due_at,"
-                "custom_fields.name,custom_fields.display_value"
+                "opt_fields": args.opt_fields or default_fields
             },
         )
         tasks = []
@@ -2583,12 +2740,40 @@ def command_project_board(args: argparse.Namespace) -> Any:
             }
         )
 
-    payload = {
+    payload: dict[str, Any] = {
         "project_gid": args.project_gid,
         "sections": section_payloads,
     }
+
+    if context_mode:
+        now = datetime.now(timezone.utc)
+        payload["context"] = compute_board_context(section_payloads, now)
+
     print_json(payload, args.compact)
     return payload
+
+
+def command_trigger_rule(args: argparse.Namespace) -> Any:
+    token = get_token(args)
+    action_data: dict[str, str] = {}
+    for pair in getattr(args, "action_data", None) or []:
+        if "=" not in pair:
+            raise SystemExit(f"Invalid --action-data format: {pair!r}  (expected key=value)")
+        key, value = pair.split("=", 1)
+        action_data[key] = value
+
+    body: dict[str, Any] = {"data": {"resource": args.task_gid}}
+    if action_data:
+        body["data"]["action_data"] = action_data
+
+    result = api_request(
+        token=token,
+        method="POST",
+        path_or_url=f"/rule_triggers/{args.trigger_identifier}/run",
+        json_body=body,
+    )
+    print_json(result, args.compact)
+    return result
 
 
 def command_task_bundle(args: argparse.Namespace) -> Any:
@@ -3451,7 +3636,7 @@ def command_show_cache(args: argparse.Namespace) -> Any:
     return enriched
 
 
-def command_inbox_cleanup(args: argparse.Namespace) -> Any:
+def build_inbox_cleanup_payload(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
     cache = load_cache()
@@ -3694,8 +3879,271 @@ def command_inbox_cleanup(args: argparse.Namespace) -> Any:
         include_first_run=True,
         refresh_summary=True,
     )
+    return enriched
+
+
+def command_inbox_cleanup(args: argparse.Namespace) -> Any:
+    enriched = build_inbox_cleanup_payload(args)
     print_json(enriched, args.compact)
     return enriched
+
+
+def daily_briefing_project_state(task_result: dict[str, Any]) -> str:
+    for reason in task_result.get("reasons", []) or []:
+        if isinstance(reason, str) and reason.startswith("Project state: "):
+            return reason.removeprefix("Project state: ").strip()
+    return ""
+
+
+def daily_briefing_due_date(task_result: dict[str, Any]) -> str | None:
+    for reason in task_result.get("reasons", []) or []:
+        if isinstance(reason, str) and reason.startswith("Due date: "):
+            return reason.removeprefix("Due date: ").strip()
+    return None
+
+
+def daily_briefing_primary_pr(task_result: dict[str, Any]) -> str | None:
+    linked_prs = task_result.get("linked_prs", []) or []
+    if not linked_prs:
+        return None
+    first = linked_prs[0]
+    pr_number = str(first.get("pr_number") or "").strip()
+    if not pr_number:
+        return None
+    return f"PR #{pr_number}"
+
+
+def daily_briefing_done_like(task_result: dict[str, Any]) -> bool:
+    return bool(DAILY_BRIEFING_DONE_LIKE_PATTERN.search(daily_briefing_project_state(task_result)))
+
+
+def daily_briefing_is_background_noise(task_result: dict[str, Any]) -> bool:
+    if str(task_result.get("work_type") or "") == "admin":
+        return True
+    return bool(DAILY_BRIEFING_ADMIN_NOISE_PATTERN.search(str(task_result.get("name") or "")))
+
+
+def daily_briefing_item(task_result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "task_gid": task_result.get("task_gid"),
+        "name": task_result.get("name"),
+        "url": task_result.get("permalink_url"),
+        "current_section": task_result.get("current_section"),
+        "target_section": task_result.get("target_section"),
+        "project_state": daily_briefing_project_state(task_result),
+        "work_type": task_result.get("work_type"),
+        "due_date": daily_briefing_due_date(task_result),
+        "pr": daily_briefing_primary_pr(task_result),
+        "linked_prs": task_result.get("linked_prs", []) or [],
+        "next_action": ((task_result.get("manager_plan") or {}).get("next_action")),
+        "active_ai_action": task_result.get("active_ai_action") or {},
+        "task_result": task_result,
+    }
+
+
+def daily_briefing_bucket_score(bucket_name: str, task_result: dict[str, Any]) -> int:
+    score = 0
+    current_section = str(task_result.get("current_section") or "")
+    project_state = daily_briefing_project_state(task_result)
+    task_name = str(task_result.get("name") or "")
+    reasons_blob = " ".join(str(reason) for reason in (task_result.get("reasons") or []))
+
+    if daily_briefing_primary_pr(task_result):
+        score += 4
+    if "Recently assigned" in current_section:
+        score += 3
+    if daily_briefing_due_date(task_result):
+        score += 2
+    if (
+        DAILY_BRIEFING_URGENT_PATTERN.search(project_state)
+        or DAILY_BRIEFING_URGENT_PATTERN.search(task_name)
+        or DAILY_BRIEFING_URGENT_PATTERN.search(reasons_blob)
+    ):
+        score += 2
+    if bucket_name == "release_watch" and daily_briefing_done_like(task_result):
+        score += 3
+    if bucket_name == "needs_follow_up" and "Waiting" in current_section:
+        score += 2
+    if bucket_name == "ready_to_close" and "Likely Ready To Close" in current_section:
+        score += 2
+    return score
+
+
+def daily_briefing_bucket_key(task_result: dict[str, Any]) -> str:
+    action = str(((task_result.get("active_ai_action") or {}).get("action")) or "no_ai_action")
+    execution_candidate = bool(((task_result.get("manager_plan") or {}).get("execution_candidate")))
+    has_code_signal = execution_candidate or bool(task_result.get("linked_prs"))
+
+    if daily_briefing_is_background_noise(task_result):
+        return "background"
+    if action == "ask_to_close":
+        return "ready_to_close"
+    if action == "ask_to_follow_up":
+        return "needs_follow_up"
+    if action == "ask_to_execute_now" and daily_briefing_done_like(task_result):
+        return "release_watch"
+    if action == "ask_to_verify":
+        return "needs_verification"
+    if action == "ask_to_execute_now" and has_code_signal and not daily_briefing_done_like(task_result):
+        return "execute_now"
+    return "background"
+
+
+def daily_briefing_action_summary(bucket_name: str, item: dict[str, Any]) -> str:
+    if bucket_name == "execute_now":
+        if item.get("pr"):
+            return "Real execution signal detected; this looks like active code work."
+        return "This looks actionable now and worth pulling into an active work session."
+    if bucket_name == "release_watch":
+        return "Implementation appears done on our side; keep this visible for ship tracking and close-out."
+    if bucket_name == "needs_verification":
+        return "This looks like QA, confirmation, or post-ship validation work."
+    if bucket_name == "needs_follow_up":
+        return "This looks blocked on another person or team and needs one concrete follow-up."
+    if bucket_name == "ready_to_close":
+        return "Recent context suggests this may be ready for manual close-out."
+    return "Keep this visible, but it should not drive the day by default."
+
+
+def render_daily_briefing_markdown(payload: dict[str, Any]) -> str:
+    summary = payload.get("summary", {}) or {}
+    bucket_titles = {
+        "execute_now": "Execute Now",
+        "release_watch": "Release / Ship Watch",
+        "needs_verification": "Needs Verification",
+        "needs_follow_up": "Needs Follow-Up",
+        "ready_to_close": "Likely Ready To Close",
+        "background": "Background / Not Today",
+    }
+    bucket_limits = {
+        "execute_now": 6,
+        "release_watch": 6,
+        "needs_verification": 6,
+        "needs_follow_up": 6,
+        "ready_to_close": 6,
+        "background": 8,
+    }
+    lines = [
+        f"**Morning Command Center — {payload.get('briefing_date', '')}**",
+        (
+            f"- Today at a glance: {summary.get('open_task_count', 0)} open tasks, "
+            f"{summary.get('execute_now_count', 0)} execute-now, "
+            f"{summary.get('release_watch_count', 0)} release/watch, "
+            f"{summary.get('needs_verification_count', 0)} needs verification, "
+            f"{summary.get('needs_follow_up_count', 0)} needs follow-up, "
+            f"{summary.get('ready_to_close_count', 0)} likely ready to close."
+        ),
+        "- Focus today: unblock and release-track existing work before starting new implementation.",
+    ]
+
+    for bucket_name in (
+        "execute_now",
+        "release_watch",
+        "needs_verification",
+        "needs_follow_up",
+        "ready_to_close",
+        "background",
+    ):
+        entries = payload.get("buckets", {}).get(bucket_name, []) or []
+        limit = bucket_limits[bucket_name]
+        lines.append("")
+        lines.append(f"**{bucket_titles[bucket_name]}**")
+        if not entries:
+            lines.append("- None today.")
+            continue
+        for entry in entries[:limit]:
+            lines.append(f"- [{entry.get('name')}]({entry.get('url')})")
+            detail_bits: list[str] = []
+            if entry.get("pr"):
+                detail_bits.append(str(entry["pr"]))
+            if entry.get("project_state"):
+                detail_bits.append(str(entry["project_state"]))
+            if entry.get("due_date"):
+                detail_bits.append(f"due {entry['due_date']}")
+            if entry.get("current_section"):
+                detail_bits.append(f"My Tasks: {entry['current_section']}")
+            detail_bits.append(daily_briefing_action_summary(bucket_name, entry))
+            if entry.get("next_action"):
+                detail_bits.append(f"Next: {entry['next_action']}")
+            lines.append(f"  {' ; '.join(detail_bits)}")
+        if len(entries) > limit:
+            lines.append(f"- + {len(entries) - limit} more")
+    return "\n".join(lines)
+
+
+def build_daily_briefing(args: argparse.Namespace) -> dict[str, Any]:
+    cleanup_args = argparse.Namespace(
+        workspace=getattr(args, "workspace", None),
+        source_section=list(DEFAULT_INBOX_CLEANUP_SOURCE_SECTIONS),
+        all_open=True,
+        apply=False,
+        skip_ready_comments=True,
+        manager_comments=False,
+        comment_research_todos=False,
+        max_tasks=getattr(args, "max_tasks", 0),
+        no_paginate=getattr(args, "no_paginate", False),
+        limit_pages=getattr(args, "limit_pages", 0),
+        compact=True,
+        token=getattr(args, "token", None),
+        command="daily-briefing",
+    )
+    cleanup_payload = build_inbox_cleanup_payload(cleanup_args)
+    task_results = cleanup_payload.get("tasks", []) or []
+    bucketed: dict[str, list[dict[str, Any]]] = {
+        "execute_now": [],
+        "release_watch": [],
+        "needs_verification": [],
+        "needs_follow_up": [],
+        "ready_to_close": [],
+        "background": [],
+    }
+    for task_result in task_results:
+        if not isinstance(task_result, dict):
+            continue
+        bucket_key = daily_briefing_bucket_key(task_result)
+        bucketed[bucket_key].append(daily_briefing_item(task_result))
+
+    for bucket_name, entries in bucketed.items():
+        entries.sort(
+            key=lambda entry: (
+                -daily_briefing_bucket_score(bucket_name, entry["task_result"]),
+                str(entry.get("name") or "").casefold(),
+            )
+        )
+        for entry in entries:
+            entry.pop("task_result", None)
+
+    summary = {
+        "open_task_count": int(((cleanup_payload.get("counts") or {}).get("all_open_tasks_in_my_tasks")) or len(task_results)),
+        "execute_now_count": len(bucketed["execute_now"]),
+        "release_watch_count": len(bucketed["release_watch"]),
+        "needs_verification_count": len(bucketed["needs_verification"]),
+        "needs_follow_up_count": len(bucketed["needs_follow_up"]),
+        "ready_to_close_count": len(bucketed["ready_to_close"]),
+        "background_count": len(bucketed["background"]),
+    }
+    payload = {
+        "briefing_date": datetime.now().strftime("%B %d, %Y"),
+        "generated_at": now_iso(),
+        "summary": summary,
+        "buckets": bucketed,
+        "source": {
+            "command": "python3 scripts/asana_api.py inbox-cleanup --all-open",
+            "workspace_gid": cleanup_payload.get("workspace_gid"),
+            "my_tasks": cleanup_payload.get("my_tasks"),
+        },
+    }
+    payload["rendered_markdown"] = render_daily_briefing_markdown(payload)
+    return payload
+
+
+def command_daily_briefing(args: argparse.Namespace) -> Any:
+    payload = build_daily_briefing(args)
+    if getattr(args, "markdown", False):
+        print(payload["rendered_markdown"])
+    else:
+        print_json(payload, args.compact)
+    return payload
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -3796,6 +4244,7 @@ def build_parser() -> argparse.ArgumentParser:
     board_parser = subparsers.add_parser("board", help="Return project sections in order with tasks in each section")
     board_parser.add_argument("project_gid")
     board_parser.add_argument("--opt-fields", help="Override per-task fields in board output")
+    board_parser.add_argument("--context", action="store_true", help="Include workflow context stats (field coverage, staleness, assignee distribution)")
     add_common_output_flags(board_parser)
     board_parser.set_defaults(func=command_project_board)
 
@@ -3979,6 +4428,36 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_common_output_flags(inbox_cleanup_parser)
     inbox_cleanup_parser.set_defaults(func=command_inbox_cleanup)
+
+    daily_briefing_parser = subparsers.add_parser(
+        "daily-briefing",
+        help="Render a full morning command center for My Tasks with links, ship-watch detection, and action buckets",
+    )
+    daily_briefing_parser.add_argument("--workspace", help="Workspace GID override")
+    daily_briefing_parser.add_argument(
+        "--max-tasks",
+        type=int,
+        default=0,
+        help="Limit how many My Tasks items to analyze before building the briefing",
+    )
+    daily_briefing_parser.add_argument(
+        "--no-paginate",
+        action="store_true",
+        help="Do not follow My Tasks next_page links",
+    )
+    daily_briefing_parser.add_argument(
+        "--limit-pages",
+        type=int,
+        default=0,
+        help="Stop My Tasks pagination after N pages",
+    )
+    daily_briefing_parser.add_argument(
+        "--markdown",
+        action="store_true",
+        help="Print the rendered markdown briefing instead of JSON",
+    )
+    add_common_output_flags(daily_briefing_parser)
+    daily_briefing_parser.set_defaults(func=command_daily_briefing)
 
     create_task_parser = subparsers.add_parser("create-task", help="Create a task")
     create_task_parser.add_argument("--name", required=True)
@@ -4191,6 +4670,16 @@ def build_parser() -> argparse.ArgumentParser:
     cache_parser = subparsers.add_parser("show-cache", help="Print the local Asana entity cache")
     add_common_output_flags(cache_parser)
     cache_parser.set_defaults(func=command_show_cache)
+
+    trigger_rule_parser = subparsers.add_parser(
+        "trigger-rule",
+        help="Trigger an existing Asana rule that has a 'web request received' trigger",
+    )
+    trigger_rule_parser.add_argument("trigger_identifier", help="Trigger identifier from the Asana rule's incoming web request URL")
+    trigger_rule_parser.add_argument("--task", dest="task_gid", required=True, help="Task GID where rule actions will be performed")
+    trigger_rule_parser.add_argument("--action-data", action="append", metavar="KEY=VALUE", help="Custom key=value data available as dynamic variables in rule actions (repeatable)")
+    add_common_output_flags(trigger_rule_parser)
+    trigger_rule_parser.set_defaults(func=command_trigger_rule)
 
     return parser
 

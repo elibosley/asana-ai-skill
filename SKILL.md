@@ -64,10 +64,13 @@ The helper reads the PAT from `ASANA_ACCESS_TOKEN` first, then falls back to the
 28. `inbox-cleanup` should now be treated as an active AI triage pass, not just a section-mover. It re-analyzes task comments, looks for linked PRs/URLs, assigns an `active_ai_action` like `ask_to_execute_now` or `ask_to_verify`, and surfaces which tasks are good candidates for immediate AI help after the user confirms.
 29. When the user wants to retire old personal sections, prefer `close-out-sections` over ad hoc manual moves. It can preview exact source sections, move all tasks or only completed/incomplete tasks into a destination section, and only deletes the source section after it is actually empty.
 30. Treat some My Tasks columns as potentially undeletable even after they are empty. In particular, `Recently assigned` can usually be drained to zero tasks, but Asana may still refuse to remove the column, so present that outcome as "emptied but not removable" rather than retrying indefinitely.
-31. If the task changes this skill repo itself, treat it as a shipped skill update unless the user explicitly says not to release it yet.
-32. Before committing or pushing any skill change, run `python3 scripts/check_release.py`. Do not push until it passes.
-33. If `check_release.py` fails because release metadata is missing, run `python3 scripts/bump_version.py --part auto --title "Short release title"`. Let the helper choose the semantically correct bump from the current diff unless the user explicitly wants an override. Replace the scaffold line in `CHANGELOG.md` with a real user-facing summary, rerun `python3 scripts/check_release.py`, then commit and push.
-34. Never leave the top changelog entry on the placeholder text `Describe the user-visible change here.` If you bumped the version, you own writing the matching release note before you finish.
+31. When the user wants a full morning overview instead of a filing pass, prefer `daily-briefing`. It builds a read-only command center over all open My Tasks, includes direct links for every surfaced task, and separates `Execute Now`, `Release / Ship Watch`, `Needs Verification`, `Needs Follow-Up`, `Likely Ready To Close`, and `Background / Not Today`.
+32. `daily-briefing` must treat project columns as first-class workflow context. If a task has code/PR signals but its project state already says `Done`, `Test`, `Staging`, `QA`, `Production`, or similar, do not present it as `Execute Now`; move it to `Release / Ship Watch` or `Needs Verification` instead.
+33. For `daily-briefing`, keep the command-center framing broad but opinionated: show the important non-code queues too, but suppress admin/training/goal noise into the background bucket so the day is not driven by low-signal tasks.
+34. If the task changes this skill repo itself, treat it as a shipped skill update unless the user explicitly says not to release it yet.
+35. Before committing or pushing any skill change, run `python3 scripts/check_release.py`. Do not push until it passes.
+36. If `check_release.py` fails because release metadata is missing, run `python3 scripts/bump_version.py --part auto --title "Short release title"`. Let the helper choose the semantically correct bump from the current diff unless the user explicitly wants an override. Replace the scaffold line in `CHANGELOG.md` with a real user-facing summary, rerun `python3 scripts/check_release.py`, then commit and push.
+37. Never leave the top changelog entry on the placeholder text `Describe the user-visible change here.` If you bumped the version, you own writing the matching release note before you finish.
 
 ## AI Message Format
 
@@ -113,6 +116,9 @@ python3 scripts/asana_api.py project-assigned-tasks <project_gid> --completed fa
 python3 scripts/asana_api.py project-assigned-tasks <project_gid> --completed false --include-task-position --include-comments --comment-limit 3 --include-attachments
 python3 scripts/asana_api.py sections <project_gid>
 python3 scripts/asana_api.py board <project_gid>
+python3 scripts/asana_api.py board <project_gid> --context
+python3 scripts/asana_api.py trigger-rule <trigger_identifier> --task <task_gid>
+python3 scripts/asana_api.py trigger-rule <trigger_identifier> --task <task_gid> --action-data status=approved --action-data reviewer=jane
 python3 scripts/asana_api.py task <task_gid>
 python3 scripts/asana_api.py story <story_gid>
 python3 scripts/asana_api.py task-bundle <task_gid> --project-gid <project_gid>
@@ -126,6 +132,8 @@ python3 scripts/asana_api.py inbox-cleanup --source-section "Recently assigned" 
 python3 scripts/asana_api.py inbox-cleanup --all-open --max-tasks 50
 python3 scripts/asana_api.py inbox-cleanup --manager-comments
 python3 scripts/asana_api.py inbox-cleanup --comment-research-todos --apply
+python3 scripts/asana_api.py daily-briefing
+python3 scripts/asana_api.py daily-briefing --markdown
 python3 scripts/asana_api.py close-out-sections <project_gid> --section "Old Section" --move-to "Work Completed" --completed-mode completed
 python3 scripts/asana_api.py close-out-sections <project_gid> --section "Old Section" --move-to "Work Completed" --completed-mode completed --apply
 python3 scripts/asana_api.py create-task --name "Follow up" --project <project_gid>
@@ -138,6 +146,18 @@ python3 scripts/asana_api.py add-task-tag <task_gid> <tag_gid>
 python3 scripts/asana_api.py add-task-dependencies <task_gid> <other_task_gid>
 python3 scripts/asana_api.py batch --actions '[{"method":"get","relative_path":"/users/me"}]'
 ```
+
+## Workflow Analysis
+
+When the user asks about workflow optimizations, project health, or automation rules:
+
+1. Run `board <project_gid> --context` to get the enriched board snapshot with stats.
+2. Read `references/workflow-patterns.md` for bottleneck detection patterns and rule templates.
+3. Analyze the `context` key in the output — look for section pile-ups, stale tasks, low custom field coverage, unassigned tasks, and missing due dates.
+4. Recommend specific Asana rules with step-by-step UI creation instructions from the patterns reference.
+5. If the user has existing rules with "Incoming web request" triggers, use `trigger-rule` to trigger them programmatically.
+
+Note: Asana does not expose rule creation via API. Rules must be created in the Asana web UI. The workflow advisor analyzes board context and recommends rules — it cannot create them automatically.
 
 ## Guardrails
 
@@ -152,3 +172,4 @@ python3 scripts/asana_api.py batch --actions '[{"method":"get","relative_path":"
 
 - Core API guide: `references/api-overview.md`
 - Common command cookbook: `references/recipes.md`
+- Workflow patterns and rule templates: `references/workflow-patterns.md`

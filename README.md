@@ -62,6 +62,7 @@ Recent workflow improvement:
 
 - `project-assigned-tasks` can now optionally enrich assigned-task pulls with section order, task position inside a section, recent comments, and attachments. This makes AI-generated pull lists much more contextual and reduces the need to manually stitch together task history after the initial search.
 - `inbox-cleanup` should now be treated as the main personal task-PM workflow for My Tasks, not just a sorter. It can classify what each task really needs, suggest next actions and TODOs, flag execution-ready work, and optionally draft private AI PM comments on tasks that look personal to the user.
+- `daily-briefing` adds a read-only morning command center for My Tasks. It renders direct task links plus opinionated buckets like `Release / Ship Watch`, `Needs Verification`, and `Needs Follow-Up`, and it explicitly avoids surfacing done-like project columns such as `Test` or `Staging` as fresh `Execute Now` work.
 - `close-out-sections` can now retire stale personal sections safely. It previews the source sections, optionally relocates all tasks or only completed/incomplete tasks into a destination section, and deletes the source section only after it is truly empty. For My Tasks, `Recently assigned` may still be non-removable even after it has been emptied.
 
 ## Requirements
