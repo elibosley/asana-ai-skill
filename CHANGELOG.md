@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.1.0] - 2026-03-25 — Rewrite README for non-technical users
+
+### Changed
+
+- **README rewritten around a non-technical setup flow.** The AI-assisted "paste this block" setup is now Step 2 instead of buried below the manual instructions. Token creation has explicit click-by-click steps. A new "Try It Out" section shows example prompts immediately after install so users know what to do next. Manual setup, maintainer workflows, and release tooling moved into collapsible sections at the bottom. Based on user testing with a first-time non-technical installer.
+
 ## [1.0.0.0] - 2026-03-25 — Workflow advisor and rule triggers
 
 ### Changed

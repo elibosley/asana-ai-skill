@@ -1,23 +1,25 @@
 # Asana Agent Skill
 
-Portable Asana skill for Codex, Claude Code, and similar local coding agents. The repo contains the skill itself, a local installer, and setup instructions that keep tokens out of git.
+An AI skill that lets Codex, Claude Code, and similar agents manage your Asana tasks, projects, and workflows using plain English.
 
-## Start Here
+## Setup (5 minutes)
 
-If you are a non-technical Asana admin, start here.
+You need two things: an Asana token and a one-time install. Your AI tool handles almost everything.
+
+### Step 1: Create your Asana token
 
 1. Sign in to [Asana](https://app.asana.com/).
-2. Create a personal access token from profile photo -> `Settings` -> `Apps` -> `View developer console` -> `Personal access tokens` -> `Create new token`.
-3. Save that token to `~/.agent-skills/asana/asana_pat`.
-4. Run:
+2. Click your **profile photo** (top right).
+3. Click **Settings**.
+4. Click the **Apps** tab.
+5. Click **View developer console** (near the bottom).
+6. Click **Personal access tokens** on the left, then **Create new token**.
+7. Name it anything (e.g. "AI Skill"), accept the terms, and click **Create token**.
+8. **Copy the token immediately** — it is only shown once. Paste it somewhere safe (a notes app, a text file, anywhere temporary).
 
-```bash
-python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent both
-```
+### Step 2: Let your AI do the rest
 
-That bootstrap step installs the skill for both Codex and Claude Code, creates shared local storage, builds your Asana context automatically, and verifies access.
-
-If you want your AI tool to do almost all of this for you, paste this:
+Open **Codex** or **Claude Code** and paste this entire block:
 
 ```text
 Set up the private `asana` skill for me from `Unraid/asana-ai-skill` with as little manual work as possible.
@@ -44,145 +46,161 @@ Requirements:
 - Never print the token in output
 ```
 
-If you only want one agent:
+The AI will ask you a couple questions (which agent to install for, and to paste your token). Answer them and you are done.
 
-- Codex only: `python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent codex`
-- Claude Code only: `python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent claude`
+### Step 3: Verify it worked
+
+After setup, ask your AI:
+
+> Show me my Asana workspaces
+
+If it returns your workspace name, everything is connected.
+
+## Try It Out
+
+Once installed, just talk to your AI in plain English. Here are some things you can do:
+
+| Say this | What happens |
+|---|---|
+| "Give me a morning briefing of my tasks" | See everything due today, overdue, and coming up |
+| "Show me all tasks assigned to me in [project name]" | Pull your tasks with context, comments, and attachments |
+| "Import tasks from a spreadsheet into Asana" | Bulk-create tasks from a CSV with assignees, due dates, and sections |
+| "Clean up my Asana inbox" | Classify tasks, suggest next actions, flag what needs attention |
+| "Close out stale sections in my tasks" | Safely archive old sections after moving remaining tasks |
+| "Find tasks about [topic] in [project]" | Search across projects by keyword |
+| "Create a task for [person] to [do something] by [date]" | Create and assign a task in one sentence |
 
 ## What Is Included
 
-- `SKILL.md` plus `agents/openai.yaml`
-- `scripts/asana_api.py` with only Python standard-library dependencies
-- `scripts/bootstrap_skill.py` for first-time setup
-- `scripts/install_skill.py` for local install or update
-- `scripts/update_skill.py` for self-updating installs
-- `asana-context.example.json` for workspace and team defaults
+- **Daily briefing** — a read-only morning command center for My Tasks with direct links and priority buckets
+- **Project task pulls** — fetch assigned tasks enriched with section order, position, recent comments, and attachments
+- **Inbox cleanup** — classify tasks, suggest next actions, flag execution-ready work, and optionally draft AI comments
+- **Section management** — retire stale personal sections safely by previewing, relocating tasks, and deleting only when empty
+- **Bulk import** — create tasks from spreadsheets with assignees, due dates, priorities, and sections
+- **Direct links** — every task the AI creates or modifies includes a clickable Asana URL
 
-Recent workflow improvement:
+## Updating
 
-- `project-assigned-tasks` can now optionally enrich assigned-task pulls with section order, task position inside a section, recent comments, and attachments. This makes AI-generated pull lists much more contextual and reduces the need to manually stitch together task history after the initial search.
-- `inbox-cleanup` should now be treated as the main personal task-PM workflow for My Tasks, not just a sorter. It can classify what each task really needs, suggest next actions and TODOs, flag execution-ready work, and optionally draft private AI PM comments on tasks that look personal to the user.
-- `daily-briefing` adds a read-only morning command center for My Tasks. It renders direct task links plus opinionated buckets like `Release / Ship Watch`, `Needs Verification`, and `Needs Follow-Up`, and it explicitly avoids surfacing done-like project columns such as `Test` or `Staging` as fresh `Execute Now` work.
-- `close-out-sections` can now retire stale personal sections safely. It previews the source sections, optionally relocates all tasks or only completed/incomplete tasks into a destination section, and deletes the source section only after it is truly empty. For My Tasks, `Recently assigned` may still be non-removable even after it has been emptied.
+The skill auto-updates in the background. To force an update manually, tell your AI:
+
+> Update the Asana skill to the latest version
+
+Or run directly:
+
+```bash
+python3 ~/Code/asana-ai-skill/scripts/update_skill.py --force
+```
 
 ## Requirements
 
-- Python `3.9+`
-- A personal Asana access token
-- Codex, Claude Code, or another agent environment that supports local skills
+- macOS or Linux (Windows WSL works too)
+- Python 3.9+ (pre-installed on most Macs)
+- A personal Asana access token (created in Step 1 above)
+- Codex, Claude Code, or another agent that supports local skills
 
-No `pip install` step is required.
+No `pip install` step is required — the skill uses only Python's standard library.
 
-## Maintainer Setup
+---
 
-Clone this repo into `~/Code/asana-ai-skill`, then run:
+<details>
+<summary><strong>Manual setup (for developers or if you prefer doing it yourself)</strong></summary>
+
+### Option A: Clone and bootstrap
 
 ```bash
-python3 scripts/bootstrap_skill.py --agent both
+git clone https://github.com/Unraid/asana-ai-skill.git ~/Code/asana-ai-skill
+python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent both
 ```
 
-That installs the skill, creates the shared local state directory, refreshes the repo when safe, and auto-builds `asana-context.json` if a token is already present.
+The bootstrap script will prompt you for your Asana token if one is not already saved.
 
-## Admin Setup
+### Option B: Download ZIP and bootstrap
 
-For non-technical admins, the bootstrap script is the main entry point:
+1. Click the green **Code** button at the top of this page, then **Download ZIP**.
+2. Unzip the download.
+3. Move the unzipped folder to `~/Code/asana-ai-skill` (rename it if the folder is called `asana-codex-skill-main` or similar).
+4. Open Terminal and run:
 
 ```bash
 python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent both
 ```
 
-It handles almost everything automatically and leaves only the token step if the user has not added one yet.
+### Saving the token manually
 
-Claude Code personal skills live in `~/.claude/skills/<skill-name>/SKILL.md`, so this installer places the skill at `~/.claude/skills/asana` when `--agent claude` or `--agent both` is used.
-
-## Getting an Asana token
-
-If the user does not already have a token, they need to sign in to Asana first and create one from the developer console:
-
-1. Sign in to [Asana](https://app.asana.com/).
-2. Click your profile photo.
-3. Open `Settings`.
-4. Go to the `Apps` tab.
-5. Click `View developer console`.
-6. In `Personal access tokens`, click `Create new token`.
-7. Name the token, accept the API terms, and create it.
-8. Copy the token immediately and save it to `~/.agent-skills/asana/asana_pat`.
-
-Important notes:
-
-- The token is shown once, so copy it right away.
-- A PAT acts as the signed-in user.
-- It can access the Asana workspaces that user is already a member of.
-
-## Auto-update
-
-The skill now ships with a self-updater:
+If the bootstrap script does not prompt you, save the token yourself:
 
 ```bash
-python3 scripts/update_skill.py --force
+mkdir -p ~/.agent-skills/asana
+nano ~/.agent-skills/asana/asana_pat
 ```
 
-It supports two cases:
+Paste your token, then press **Ctrl+X**, then **Y**, then **Enter** to save.
 
-- Symlink or git-backed install: fast-forwards the local checkout with `git pull --ff-only`
-- Copy install: bootstraps a managed clone under `~/.agent-skills/sources/asana-ai-skill`, then switches the installed skill directories to that tracked checkout
+### Single-agent install
 
-The skill can also call the updater in best-effort mode during normal use, with a built-in interval gate so it does not hit the network every single invocation.
+- Codex only: `python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent codex`
+- Claude Code only: `python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent claude`
 
-## Manual setup
+### Verify
 
-1. Clone the repo to `~/Code/asana-ai-skill`.
-2. Sign in to Asana and create a PAT from `Settings` -> `Apps` -> `View developer console` -> `Personal access tokens` -> `Create new token`.
-3. Save that PAT to `~/.agent-skills/asana/asana_pat`.
-4. Run `python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent both`.
+```bash
+python3 ~/Code/asana-ai-skill/scripts/asana_api.py whoami
+```
 
-## Updating
+</details>
 
-- Any install: `python3 scripts/update_skill.py --force`
-- First-time setup or repair: `python3 scripts/bootstrap_skill.py --agent both`
-- Symlink install: `git -C ~/Code/asana-ai-skill pull --ff-only`
-- Copy install: the updater will convert it to a managed git-backed install automatically
-- GitHub install through AI: ask the AI to reinstall or refresh the skill from the repo
-- The skill now tracks a gstack-style 4-part `VERSION` plus a user-facing `CHANGELOG.md`
-- On update, the updater reports version-aware changes and can print a concise changelog summary
+<details>
+<summary><strong>Maintainer and release workflow</strong></summary>
 
-## Versioning
+### Repo structure
 
-This skill now follows the same internal release shape gstack uses:
+- `SKILL.md` plus `agents/openai.yaml` — the skill definitions
+- `scripts/asana_api.py` — API client (standard library only)
+- `scripts/bootstrap_skill.py` — first-time setup
+- `scripts/install_skill.py` — local install or update
+- `scripts/update_skill.py` — self-updating installs
+- `asana-context.example.json` — workspace and team defaults template
 
-- `VERSION` uses `MAJOR.MINOR.PATCH.MICRO`
-- `CHANGELOG.md` is for user-facing release notes, not contributor-only implementation detail
-- Every shipped skill update should bump `VERSION` and add a matching changelog entry
+### Versioning
 
-Helpful commands:
+This skill uses `MAJOR.MINOR.PATCH.MICRO` versioning in the `VERSION` file with user-facing notes in `CHANGELOG.md`.
 
 ```bash
 cat VERSION
 python3 scripts/check_release.py
 python3 scripts/bump_version.py --part auto --title "Short release title"
-python3 scripts/update_skill.py --force
 ```
 
-## Maintainer release workflow
-
-If you changed the skill itself, do not push it like a normal one-off repo tweak. Treat it as a versioned skill release.
+### Release checklist
 
 1. Run `python3 scripts/bump_version.py --part auto --title "Short release title"`.
-   Let the helper pick the semantically correct bump from the current diff unless you intentionally need to override it.
 2. Replace the scaffold text in `CHANGELOG.md` with a real user-facing summary.
 3. Run `python3 scripts/check_release.py`.
 4. Commit and push only after the release check passes.
 
-`scripts/check_release.py` fails when the diff contains skill changes without both `VERSION` and `CHANGELOG.md`, when the top changelog entry does not match `VERSION`, or when the changelog still contains the scaffold placeholder text. The intended maintainer habit is: no skill push without a green release check.
+The release check fails when skill changes lack `VERSION` and `CHANGELOG.md` updates, when the top changelog entry does not match `VERSION`, or when the changelog still contains scaffold placeholder text.
 
-## Secret handling
+### Auto-update internals
 
-- Default shared local state lives in `~/.agent-skills/asana/`
-- The helper still falls back to the legacy `~/.codex/skills-data/asana/` path for backward compatibility
-- `.secrets/` is still gitignored for backward compatibility
-- `asana-context.json` in the repo is gitignored for backward compatibility
-- The repo ships only `asana-context.example.json`
+The self-updater (`scripts/update_skill.py`) supports:
 
-## Write Output
+- **Git-backed install**: fast-forwards with `git pull --ff-only`
+- **Copy install**: bootstraps a managed clone under `~/.agent-skills/sources/asana-ai-skill`, then switches to a tracked checkout
 
-Write commands that create or update tasks or stories now return a direct `review_url` in their JSON output so an agent can link the user straight to the changed Asana object. Story/comment writes also return `target_review_url` for the parent task when Asana includes it.
+The skill calls the updater in best-effort mode during normal use with an interval gate to avoid excessive network calls.
+
+### Secret handling
+
+- Shared local state: `~/.agent-skills/asana/`
+- Legacy fallback: `~/.codex/skills-data/asana/`
+- `.secrets/` and `asana-context.json` are gitignored
+
+### Write output
+
+Write commands return a direct `review_url` in their JSON output so agents can link users to the changed Asana object. Story/comment writes also return `target_review_url` for the parent task.
+
+### Claude Code skill path
+
+Claude Code personal skills live in `~/.claude/skills/<skill-name>/SKILL.md`. The installer places the skill at `~/.claude/skills/asana` when `--agent claude` or `--agent both` is used.
+
+</details>
