@@ -22,7 +22,7 @@ You need two things: an Asana token and a one-time install. Your AI tool handles
 Open **Codex** or **Claude Code** and paste this entire block:
 
 ```text
-Set up the private `asana` skill for me from `Unraid/asana-ai-skill` with as little manual work as possible.
+Set up the private `asana` skill for me from `elibosley/asana-ai-skill` with as little manual work as possible.
 
 Requirements:
 - Ask me first which agent I want this installed for: `Codex`, `Claude Code`, or `both`
@@ -108,7 +108,7 @@ No `pip install` step is required — the skill uses only Python's standard libr
 ### Option A: Clone and bootstrap
 
 ```bash
-git clone https://github.com/Unraid/asana-ai-skill.git ~/Code/asana-ai-skill
+git clone https://github.com/elibosley/asana-ai-skill.git ~/Code/asana-ai-skill
 python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent both
 ```
 

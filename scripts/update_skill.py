@@ -31,10 +31,8 @@ DEFAULT_INTERVAL_MINUTES = 360
 VERSION_FILE_NAME = "VERSION"
 CHANGELOG_FILE_NAME = "CHANGELOG.md"
 REPO_URL_CANDIDATES = [
-    "git@github.com:unraid/asana-ai-skill.git",
-    "https://github.com/unraid/asana-ai-skill.git",
-    "git@github.com:unraid/asana-codex-skill.git",
-    "https://github.com/unraid/asana-codex-skill.git",
+    "git@github.com:elibosley/asana-ai-skill.git",
+    "https://github.com/elibosley/asana-ai-skill.git",
 ]
 
 
@@ -246,7 +244,7 @@ def clone_managed_source() -> Path:
         if completed.returncode == 0:
             return MANAGED_SOURCE_DIR
     raise RuntimeError(
-        "Unable to clone the private Asana skill repo. Confirm git access to Unraid/asana-ai-skill."
+        "Unable to clone the Asana skill repo. Confirm git access to elibosley/asana-ai-skill."
     )
 
 

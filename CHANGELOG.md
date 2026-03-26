@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.1.1] - 2026-03-26 — Personal Repo Source Of Truth
+
+### Changed
+
+- **Install and update guidance now consistently points at the personal GitHub repo.** README setup prompts and manual clone instructions now reference `elibosley/asana-ai-skill`, and the self-updater now seeds managed clones from that same personal repo so future refreshes follow the documented source of truth.
+
 ## [1.0.1.0] - 2026-03-25 — Rewrite README for non-technical users
 
 ### Changed
@@ -95,7 +101,7 @@
 
 ### Changed
 
-- **The skill now points at the renamed GitHub repo everywhere it matters.** Fresh installs and managed clones now prefer `unraid/asana-ai-skill`, setup docs use the new repo name and example checkout path, and bootstrap refresh messaging uses the actual local repo path instead of a stale hard-coded one.
+- **The skill now points at the renamed GitHub repo everywhere it matters.** Fresh installs and managed clones now prefer `elibosley/asana-ai-skill`, setup docs use the new repo name and example checkout path, and bootstrap refresh messaging uses the actual local repo path instead of a stale hard-coded one.
 
 ## [0.1.0.0] - 2026-03-22 — Versioned Skill Baseline
 
