@@ -1,0 +1,3256 @@
+{
+  "commands": [
+    {
+      "includes_shared_options": true,
+      "name": "request",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "query",
+          "help": "Query param as key=value",
+          "kind": "option",
+          "metavar": "QUERY",
+          "nargs": null,
+          "option_strings": [
+            "--query"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Asana opt_fields value",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_expand",
+          "help": "Asana opt_expand value",
+          "kind": "option",
+          "metavar": "OPT_EXPAND",
+          "nargs": null,
+          "option_strings": [
+            "--opt-expand"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "data",
+          "help": "JSON payload string",
+          "kind": "option",
+          "metavar": "DATA",
+          "nargs": null,
+          "option_strings": [
+            "--data"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "data_file",
+          "help": "Path to JSON payload file",
+          "kind": "option",
+          "metavar": "DATA_FILE",
+          "nargs": null,
+          "option_strings": [
+            "--data-file"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "no_wrap_data",
+          "help": "Do not auto-wrap JSON payloads in {\"data\": ...}",
+          "kind": "flag",
+          "metavar": "NO_WRAP_DATA",
+          "nargs": 0,
+          "option_strings": [
+            "--no-wrap-data"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "form",
+          "help": "Multipart form field as key=value",
+          "kind": "option",
+          "metavar": "FORM",
+          "nargs": null,
+          "option_strings": [
+            "--form"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "file",
+          "help": "Multipart file field as field=/abs/path",
+          "kind": "option",
+          "metavar": "FILE",
+          "nargs": null,
+          "option_strings": [
+            "--file"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "paginate",
+          "help": "Follow Asana next_page links",
+          "kind": "flag",
+          "metavar": "PAGINATE",
+          "nargs": 0,
+          "option_strings": [
+            "--paginate"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "dest": "limit_pages",
+          "help": "Stop pagination after N pages",
+          "kind": "option",
+          "metavar": "LIMIT_PAGES",
+          "nargs": null,
+          "option_strings": [
+            "--limit-pages"
+          ],
+          "required": false,
+          "type": "int"
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "method",
+          "help": "HTTP method, e.g. GET/POST/PUT/DELETE",
+          "kind": "positional",
+          "metavar": "method",
+          "name": "method",
+          "nargs": null,
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "path",
+          "help": "Relative /path or full URL",
+          "kind": "positional",
+          "metavar": "path",
+          "name": "path",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Run a generic Asana API request",
+      "usage": "usage: asana_api.py request [-h] [--query QUERY] [--opt-fields OPT_FIELDS] [--opt-expand OPT_EXPAND] [--data DATA] [--data-file DATA_FILE] [--no-wrap-data] [--form FORM] [--file FILE] [--paginate] [--limit-pages LIMIT_PAGES] [--compact] method path"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "whoami",
+      "options": [],
+      "positionals": [],
+      "summary": "Show the authenticated user",
+      "usage": "usage: asana_api.py whoami [-h] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "workspaces",
+      "options": [],
+      "positionals": [],
+      "summary": "List workspaces for the authenticated user",
+      "usage": "usage: asana_api.py workspaces [-h] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "teams",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "workspace",
+          "help": "Workspace GID override",
+          "kind": "option",
+          "metavar": "WORKSPACE",
+          "nargs": null,
+          "option_strings": [
+            "--workspace"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [],
+      "summary": "List teams in a workspace",
+      "usage": "usage: asana_api.py teams [-h] [--workspace WORKSPACE] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "users",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "workspace",
+          "help": "Workspace GID override",
+          "kind": "option",
+          "metavar": "WORKSPACE",
+          "nargs": null,
+          "option_strings": [
+            "--workspace"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override result fields",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "paginate",
+          "help": "Follow Asana next_page links",
+          "kind": "flag",
+          "metavar": "PAGINATE",
+          "nargs": 0,
+          "option_strings": [
+            "--paginate"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "dest": "limit_pages",
+          "help": "Stop pagination after N pages",
+          "kind": "option",
+          "metavar": "LIMIT_PAGES",
+          "nargs": null,
+          "option_strings": [
+            "--limit-pages"
+          ],
+          "required": false,
+          "type": "int"
+        }
+      ],
+      "positionals": [],
+      "summary": "List users in a workspace",
+      "usage": "usage: asana_api.py users [-h] [--workspace WORKSPACE] [--opt-fields OPT_FIELDS] [--paginate] [--limit-pages LIMIT_PAGES] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "projects",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "team",
+          "help": "Team GID or exact team name from asana-context.json",
+          "kind": "option",
+          "metavar": "TEAM",
+          "nargs": null,
+          "option_strings": [
+            "--team"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [],
+      "summary": "List projects for a team",
+      "usage": "usage: asana_api.py projects [-h] [--team TEAM] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "task",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override task fields",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gids",
+          "help": "Task gids; comma-separated values allowed",
+          "kind": "positional",
+          "metavar": "task_gids",
+          "name": "task_gids",
+          "nargs": "+",
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Inspect one or more tasks",
+      "usage": "usage: asana_api.py task [-h] [--opt-fields OPT_FIELDS] [--compact] task_gids [task_gids ...]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "story",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override story fields",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "story_gids",
+          "help": "Story gids; comma-separated values allowed",
+          "kind": "positional",
+          "metavar": "story_gids",
+          "name": "story_gids",
+          "nargs": "+",
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Inspect one or more stories/comments by gid",
+      "usage": "usage: asana_api.py story [-h] [--opt-fields OPT_FIELDS] [--compact] story_gids [story_gids ...]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "task-bundle",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "project_gid",
+          "help": "Project GID to include section order and project custom field settings",
+          "kind": "option",
+          "metavar": "PROJECT_GID",
+          "nargs": null,
+          "option_strings": [
+            "--project-gid"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_opt_fields",
+          "help": "Override task fields",
+          "kind": "option",
+          "metavar": "TASK_OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--task-opt-fields"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "story_opt_fields",
+          "help": "Override story fields",
+          "kind": "option",
+          "metavar": "STORY_OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--story-opt-fields"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "attachment_opt_fields",
+          "help": "Override attachment fields",
+          "kind": "option",
+          "metavar": "ATTACHMENT_OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--attachment-opt-fields"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gids",
+          "help": "Task gids; comma-separated values allowed",
+          "kind": "positional",
+          "metavar": "task_gids",
+          "name": "task_gids",
+          "nargs": "+",
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Fetch one or more tasks with comments, attachments, and optional project workflow context",
+      "usage": "usage: asana_api.py task-bundle [-h] [--project-gid PROJECT_GID] [--task-opt-fields TASK_OPT_FIELDS] [--story-opt-fields STORY_OPT_FIELDS] [--attachment-opt-fields ATTACHMENT_OPT_FIELDS] [--compact] task_gids [task_gids ...]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "task-status",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "project",
+          "help": "Limit membership analysis to one project GID",
+          "kind": "option",
+          "metavar": "PROJECT",
+          "nargs": null,
+          "option_strings": [
+            "--project"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override task fields",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "include_task_position",
+          "help": "Also look up the task's position inside its current section",
+          "kind": "flag",
+          "metavar": "INCLUDE_TASK_POSITION",
+          "nargs": 0,
+          "option_strings": [
+            "--include-task-position"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gids",
+          "help": "Task gids; comma-separated values allowed",
+          "kind": "positional",
+          "metavar": "task_gids",
+          "name": "task_gids",
+          "nargs": "+",
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Summarize completion and board-column status for one or more tasks",
+      "usage": "usage: asana_api.py task-status [-h] [--project PROJECT] [--opt-fields OPT_FIELDS] [--include-task-position] [--compact] task_gids [task_gids ...]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "project",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override project fields",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "project_gids",
+          "help": "Project gids; comma-separated values allowed",
+          "kind": "positional",
+          "metavar": "project_gids",
+          "name": "project_gids",
+          "nargs": "+",
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Inspect one or more projects",
+      "usage": "usage: asana_api.py project [-h] [--opt-fields OPT_FIELDS] [--compact] project_gids [project_gids ...]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "board",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override per-task fields in board output",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "context",
+          "help": "Include workflow context stats (field coverage, staleness, assignee distribution)",
+          "kind": "flag",
+          "metavar": "CONTEXT",
+          "nargs": 0,
+          "option_strings": [
+            "--context"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "project_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "project_gid",
+          "name": "project_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Return project sections in order with tasks in each section",
+      "usage": "usage: asana_api.py board [-h] [--opt-fields OPT_FIELDS] [--context] [--compact] project_gid"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "project-tasks",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override task fields",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "paginate",
+          "help": "Follow Asana next_page links",
+          "kind": "flag",
+          "metavar": "PAGINATE",
+          "nargs": 0,
+          "option_strings": [
+            "--paginate"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "dest": "limit_pages",
+          "help": "Stop pagination after N pages",
+          "kind": "option",
+          "metavar": "LIMIT_PAGES",
+          "nargs": null,
+          "option_strings": [
+            "--limit-pages"
+          ],
+          "required": false,
+          "type": "int"
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "project_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "project_gid",
+          "name": "project_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "List tasks in a project",
+      "usage": "usage: asana_api.py project-tasks [-h] [--opt-fields OPT_FIELDS] [--paginate] [--limit-pages LIMIT_PAGES] [--compact] project_gid"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "project-assigned-tasks",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "workspace",
+          "help": "Workspace GID override",
+          "kind": "option",
+          "metavar": "WORKSPACE",
+          "nargs": null,
+          "option_strings": [
+            "--workspace"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "assignee",
+          "help": "Assignee filter, defaults to the current user from asana-context.json; accepts gid, exact cached name, or exact cached email",
+          "kind": "option",
+          "metavar": "ASSIGNEE",
+          "nargs": null,
+          "option_strings": [
+            "--assignee"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "completed",
+          "help": "Filter by completion",
+          "kind": "option",
+          "metavar": "COMPLETED",
+          "nargs": null,
+          "option_strings": [
+            "--completed"
+          ],
+          "required": false,
+          "type": "parse_bool"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override result fields",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "include_task_position",
+          "help": "Also look up each task's position inside its effective board section",
+          "kind": "flag",
+          "metavar": "INCLUDE_TASK_POSITION",
+          "nargs": 0,
+          "option_strings": [
+            "--include-task-position"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "include_comments",
+          "help": "Include recent comment context for each task",
+          "kind": "flag",
+          "metavar": "INCLUDE_COMMENTS",
+          "nargs": 0,
+          "option_strings": [
+            "--include-comments"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": 3,
+          "dest": "comment_limit",
+          "help": "Maximum number of recent comments to keep per task when --include-comments is set",
+          "kind": "option",
+          "metavar": "COMMENT_LIMIT",
+          "nargs": null,
+          "option_strings": [
+            "--comment-limit"
+          ],
+          "required": false,
+          "type": "int"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "include_attachments",
+          "help": "Include task attachments and derived image URLs for each task",
+          "kind": "flag",
+          "metavar": "INCLUDE_ATTACHMENTS",
+          "nargs": 0,
+          "option_strings": [
+            "--include-attachments"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "paginate",
+          "help": "Follow Asana next_page links",
+          "kind": "flag",
+          "metavar": "PAGINATE",
+          "nargs": 0,
+          "option_strings": [
+            "--paginate"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "dest": "limit_pages",
+          "help": "Stop pagination after N pages",
+          "kind": "option",
+          "metavar": "LIMIT_PAGES",
+          "nargs": null,
+          "option_strings": [
+            "--limit-pages"
+          ],
+          "required": false,
+          "type": "int"
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "project_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "project_gid",
+          "name": "project_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "List assigned work in a project, including matching subtasks with parent section context",
+      "usage": "usage: asana_api.py project-assigned-tasks [-h] [--workspace WORKSPACE] [--assignee ASSIGNEE] [--completed COMPLETED] [--opt-fields OPT_FIELDS] [--include-task-position] [--include-comments] [--comment-limit COMMENT_LIMIT] [--include-attachments] [--paginate] [--limit-pages LIMIT_PAGES] [--compact] project_gid"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "sections",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override section fields",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "project_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "project_gid",
+          "name": "project_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "List sections in a project",
+      "usage": "usage: asana_api.py sections [-h] [--opt-fields OPT_FIELDS] [--compact] project_gid"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "section",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override section fields",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "section_gids",
+          "help": "Section gids; comma-separated values allowed",
+          "kind": "positional",
+          "metavar": "section_gids",
+          "name": "section_gids",
+          "nargs": "+",
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Inspect one or more sections",
+      "usage": "usage: asana_api.py section [-h] [--opt-fields OPT_FIELDS] [--compact] section_gids [section_gids ...]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "section-tasks",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override task fields",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "paginate",
+          "help": "Follow Asana next_page links",
+          "kind": "flag",
+          "metavar": "PAGINATE",
+          "nargs": 0,
+          "option_strings": [
+            "--paginate"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "dest": "limit_pages",
+          "help": "Stop pagination after N pages",
+          "kind": "option",
+          "metavar": "LIMIT_PAGES",
+          "nargs": null,
+          "option_strings": [
+            "--limit-pages"
+          ],
+          "required": false,
+          "type": "int"
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "section_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "section_gid",
+          "name": "section_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "List tasks in a section",
+      "usage": "usage: asana_api.py section-tasks [-h] [--opt-fields OPT_FIELDS] [--paginate] [--limit-pages LIMIT_PAGES] [--compact] section_gid"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "create-section",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "name",
+          "help": "",
+          "kind": "option",
+          "metavar": "NAME",
+          "nargs": null,
+          "option_strings": [
+            "--name"
+          ],
+          "required": true,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "project_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "project_gid",
+          "name": "project_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Create a section in a project",
+      "usage": "usage: asana_api.py create-section [-h] --name NAME [--compact] project_gid"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "update-section",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "name",
+          "help": "",
+          "kind": "option",
+          "metavar": "NAME",
+          "nargs": null,
+          "option_strings": [
+            "--name"
+          ],
+          "required": true,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "section_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "section_gid",
+          "name": "section_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Rename a section",
+      "usage": "usage: asana_api.py update-section [-h] --name NAME [--compact] section_gid"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "close-out-sections",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "section",
+          "help": "Source section gid or exact name; pass multiple times for multiple sections",
+          "kind": "option",
+          "metavar": "SECTION",
+          "nargs": null,
+          "option_strings": [
+            "--section"
+          ],
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "move_to",
+          "help": "Destination section gid or exact name within the same project",
+          "kind": "option",
+          "metavar": "MOVE_TO",
+          "nargs": null,
+          "option_strings": [
+            "--move-to"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": [
+            "all",
+            "completed",
+            "incomplete"
+          ],
+          "default": "all",
+          "dest": "completed_mode",
+          "help": "Which tasks to relocate before attempting deletion",
+          "kind": "option",
+          "metavar": "COMPLETED_MODE",
+          "nargs": null,
+          "option_strings": [
+            "--completed-mode"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "dest": "limit_pages",
+          "help": "Stop section task pagination after N pages while collecting tasks",
+          "kind": "option",
+          "metavar": "LIMIT_PAGES",
+          "nargs": null,
+          "option_strings": [
+            "--limit-pages"
+          ],
+          "required": false,
+          "type": "int"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "apply",
+          "help": "Move selected tasks and delete sections that end up empty",
+          "kind": "flag",
+          "metavar": "APPLY",
+          "nargs": 0,
+          "option_strings": [
+            "--apply"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "project_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "project_gid",
+          "name": "project_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Relocate tasks out of section(s) and delete the section(s) once empty",
+      "usage": "usage: asana_api.py close-out-sections [-h] --section SECTION [--move-to MOVE_TO] [--completed-mode {all,completed,incomplete}] [--limit-pages LIMIT_PAGES] [--apply] [--compact] project_gid"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "search-tasks",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "text",
+          "help": "Search text",
+          "kind": "option",
+          "metavar": "TEXT",
+          "nargs": null,
+          "option_strings": [
+            "--text"
+          ],
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "workspace",
+          "help": "Workspace GID override",
+          "kind": "option",
+          "metavar": "WORKSPACE",
+          "nargs": null,
+          "option_strings": [
+            "--workspace"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "project",
+          "help": "Project GID filter",
+          "kind": "option",
+          "metavar": "PROJECT",
+          "nargs": null,
+          "option_strings": [
+            "--project"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "assignee",
+          "help": "Assignee filter, e.g. me, user gid, exact cached user name, or exact cached email",
+          "kind": "option",
+          "metavar": "ASSIGNEE",
+          "nargs": null,
+          "option_strings": [
+            "--assignee"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "completed",
+          "help": "Filter by completion",
+          "kind": "option",
+          "metavar": "COMPLETED",
+          "nargs": null,
+          "option_strings": [
+            "--completed"
+          ],
+          "required": false,
+          "type": "parse_bool"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override result fields",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "paginate",
+          "help": "Follow Asana next_page links",
+          "kind": "flag",
+          "metavar": "PAGINATE",
+          "nargs": 0,
+          "option_strings": [
+            "--paginate"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "dest": "limit_pages",
+          "help": "Stop pagination after N pages",
+          "kind": "option",
+          "metavar": "LIMIT_PAGES",
+          "nargs": null,
+          "option_strings": [
+            "--limit-pages"
+          ],
+          "required": false,
+          "type": "int"
+        }
+      ],
+      "positionals": [],
+      "summary": "Search tasks within a workspace",
+      "usage": "usage: asana_api.py search-tasks [-h] --text TEXT [--workspace WORKSPACE] [--project PROJECT] [--assignee ASSIGNEE] [--completed COMPLETED] [--opt-fields OPT_FIELDS] [--paginate] [--limit-pages LIMIT_PAGES] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "inbox-cleanup",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "workspace",
+          "help": "Workspace GID override",
+          "kind": "option",
+          "metavar": "WORKSPACE",
+          "nargs": null,
+          "option_strings": [
+            "--workspace"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": [
+            "Recently assigned"
+          ],
+          "dest": "source_section",
+          "help": "My Tasks section name to triage from; defaults to Recently assigned",
+          "kind": "option",
+          "metavar": "SOURCE_SECTION",
+          "nargs": null,
+          "option_strings": [
+            "--source-section"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "all_open",
+          "help": "Ignore source-section filtering and include all open tasks in My Tasks",
+          "kind": "flag",
+          "metavar": "ALL_OPEN",
+          "nargs": 0,
+          "option_strings": [
+            "--all-open"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "snapshot_file",
+          "help": "Write the AI-gating snapshot JSON to this file in addition to stdout",
+          "kind": "option",
+          "metavar": "SNAPSHOT_FILE",
+          "nargs": null,
+          "option_strings": [
+            "--snapshot-file"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "plan_template_file",
+          "help": "Write an editable cleanup plan template JSON to this file",
+          "kind": "option",
+          "metavar": "PLAN_TEMPLATE_FILE",
+          "nargs": null,
+          "option_strings": [
+            "--plan-template-file"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "plan_file",
+          "help": "Path to an AI-authored cleanup plan JSON to preview or apply",
+          "kind": "option",
+          "metavar": "PLAN_FILE",
+          "nargs": null,
+          "option_strings": [
+            "--plan-file"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "apply",
+          "help": "Apply the provided AI-authored plan file by moving tasks into the requested sections",
+          "kind": "flag",
+          "metavar": "APPLY",
+          "nargs": 0,
+          "option_strings": [
+            "--apply"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "include_low_confidence",
+          "help": "When applying a plan, also move tasks marked low confidence instead of leaving them for user review",
+          "kind": "flag",
+          "metavar": "INCLUDE_LOW_CONFIDENCE",
+          "nargs": 0,
+          "option_strings": [
+            "--include-low-confidence"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "dest": "max_tasks",
+          "help": "Limit how many filtered tasks to process after section filtering",
+          "kind": "option",
+          "metavar": "MAX_TASKS",
+          "nargs": null,
+          "option_strings": [
+            "--max-tasks"
+          ],
+          "required": false,
+          "type": "int"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "no_paginate",
+          "help": "Do not follow My Tasks next_page links",
+          "kind": "flag",
+          "metavar": "NO_PAGINATE",
+          "nargs": 0,
+          "option_strings": [
+            "--no-paginate"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "dest": "limit_pages",
+          "help": "Stop My Tasks pagination after N pages",
+          "kind": "option",
+          "metavar": "LIMIT_PAGES",
+          "nargs": null,
+          "option_strings": [
+            "--limit-pages"
+          ],
+          "required": false,
+          "type": "int"
+        }
+      ],
+      "positionals": [],
+      "summary": "Generate an AI-gated My Tasks cleanup snapshot or apply an AI-authored cleanup plan",
+      "usage": "usage: asana_api.py inbox-cleanup [-h] [--workspace WORKSPACE] [--source-section SOURCE_SECTION] [--all-open] [--snapshot-file SNAPSHOT_FILE] [--plan-template-file PLAN_TEMPLATE_FILE] [--plan-file PLAN_FILE] [--apply] [--include-low-confidence] [--max-tasks MAX_TASKS] [--no-paginate] [--limit-pages LIMIT_PAGES] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "daily-briefing",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "workspace",
+          "help": "Workspace GID override",
+          "kind": "option",
+          "metavar": "WORKSPACE",
+          "nargs": null,
+          "option_strings": [
+            "--workspace"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "dest": "max_tasks",
+          "help": "Limit how many My Tasks items to include in the briefing snapshot",
+          "kind": "option",
+          "metavar": "MAX_TASKS",
+          "nargs": null,
+          "option_strings": [
+            "--max-tasks"
+          ],
+          "required": false,
+          "type": "int"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "no_paginate",
+          "help": "Do not follow My Tasks next_page links",
+          "kind": "flag",
+          "metavar": "NO_PAGINATE",
+          "nargs": 0,
+          "option_strings": [
+            "--no-paginate"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "dest": "limit_pages",
+          "help": "Stop My Tasks pagination after N pages",
+          "kind": "option",
+          "metavar": "LIMIT_PAGES",
+          "nargs": null,
+          "option_strings": [
+            "--limit-pages"
+          ],
+          "required": false,
+          "type": "int"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "snapshot_file",
+          "help": "Write the daily briefing snapshot JSON to this file in addition to stdout",
+          "kind": "option",
+          "metavar": "SNAPSHOT_FILE",
+          "nargs": null,
+          "option_strings": [
+            "--snapshot-file"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "plan_template_file",
+          "help": "Write an editable daily briefing plan template JSON to this file",
+          "kind": "option",
+          "metavar": "PLAN_TEMPLATE_FILE",
+          "nargs": null,
+          "option_strings": [
+            "--plan-template-file"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "plan_file",
+          "help": "Path to an AI-authored daily briefing plan JSON to render",
+          "kind": "option",
+          "metavar": "PLAN_FILE",
+          "nargs": null,
+          "option_strings": [
+            "--plan-file"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "markdown",
+          "help": "Print the rendered markdown briefing from the provided AI-authored plan instead of JSON",
+          "kind": "flag",
+          "metavar": "MARKDOWN",
+          "nargs": 0,
+          "option_strings": [
+            "--markdown"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [],
+      "summary": "Generate an AI-gated daily briefing snapshot or render an AI-authored morning briefing plan",
+      "usage": "usage: asana_api.py daily-briefing [-h] [--workspace WORKSPACE] [--max-tasks MAX_TASKS] [--no-paginate] [--limit-pages LIMIT_PAGES] [--snapshot-file SNAPSHOT_FILE] [--plan-template-file PLAN_TEMPLATE_FILE] [--plan-file PLAN_FILE] [--markdown] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "create-task",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "name",
+          "help": "",
+          "kind": "option",
+          "metavar": "NAME",
+          "nargs": null,
+          "option_strings": [
+            "--name"
+          ],
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "workspace",
+          "help": "Workspace GID override",
+          "kind": "option",
+          "metavar": "WORKSPACE",
+          "nargs": null,
+          "option_strings": [
+            "--workspace"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "project",
+          "help": "Project GID",
+          "kind": "option",
+          "metavar": "PROJECT",
+          "nargs": null,
+          "option_strings": [
+            "--project"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "parent",
+          "help": "Parent task GID",
+          "kind": "option",
+          "metavar": "PARENT",
+          "nargs": null,
+          "option_strings": [
+            "--parent"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "assignee",
+          "help": "Assignee gid, me, exact cached user name, or exact cached email",
+          "kind": "option",
+          "metavar": "ASSIGNEE",
+          "nargs": null,
+          "option_strings": [
+            "--assignee"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "notes",
+          "help": "",
+          "kind": "option",
+          "metavar": "NOTES",
+          "nargs": null,
+          "option_strings": [
+            "--notes"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "html_notes",
+          "help": "",
+          "kind": "option",
+          "metavar": "HTML_NOTES",
+          "nargs": null,
+          "option_strings": [
+            "--html-notes"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "due_on",
+          "help": "",
+          "kind": "option",
+          "metavar": "DUE_ON",
+          "nargs": null,
+          "option_strings": [
+            "--due-on"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "due_at",
+          "help": "",
+          "kind": "option",
+          "metavar": "DUE_AT",
+          "nargs": null,
+          "option_strings": [
+            "--due-at"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": [],
+          "dest": "custom_field",
+          "help": "Custom field as gid=value",
+          "kind": "option",
+          "metavar": "CUSTOM_FIELD",
+          "nargs": null,
+          "option_strings": [
+            "--custom-field"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [],
+      "summary": "Create a task",
+      "usage": "usage: asana_api.py create-task [-h] --name NAME [--workspace WORKSPACE] [--project PROJECT] [--parent PARENT] [--assignee ASSIGNEE] [--notes NOTES] [--html-notes HTML_NOTES] [--due-on DUE_ON] [--due-at DUE_AT] [--custom-field CUSTOM_FIELD] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "update-task",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "name",
+          "help": "",
+          "kind": "option",
+          "metavar": "NAME",
+          "nargs": null,
+          "option_strings": [
+            "--name"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "assignee",
+          "help": "Assignee gid, me, exact cached user name, or exact cached email",
+          "kind": "option",
+          "metavar": "ASSIGNEE",
+          "nargs": null,
+          "option_strings": [
+            "--assignee"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "notes",
+          "help": "",
+          "kind": "option",
+          "metavar": "NOTES",
+          "nargs": null,
+          "option_strings": [
+            "--notes"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "html_notes",
+          "help": "",
+          "kind": "option",
+          "metavar": "HTML_NOTES",
+          "nargs": null,
+          "option_strings": [
+            "--html-notes"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "due_on",
+          "help": "",
+          "kind": "option",
+          "metavar": "DUE_ON",
+          "nargs": null,
+          "option_strings": [
+            "--due-on"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "due_at",
+          "help": "",
+          "kind": "option",
+          "metavar": "DUE_AT",
+          "nargs": null,
+          "option_strings": [
+            "--due-at"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "completed",
+          "help": "",
+          "kind": "option",
+          "metavar": "COMPLETED",
+          "nargs": null,
+          "option_strings": [
+            "--completed"
+          ],
+          "required": false,
+          "type": "parse_bool"
+        },
+        {
+          "choices": null,
+          "default": [],
+          "dest": "custom_field",
+          "help": "Custom field as gid=value",
+          "kind": "option",
+          "metavar": "CUSTOM_FIELD",
+          "nargs": null,
+          "option_strings": [
+            "--custom-field"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "task_gid",
+          "name": "task_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Update a task",
+      "usage": "usage: asana_api.py update-task [-h] [--name NAME] [--assignee ASSIGNEE] [--notes NOTES] [--html-notes HTML_NOTES] [--due-on DUE_ON] [--due-at DUE_AT] [--completed COMPLETED] [--custom-field CUSTOM_FIELD] [--compact] task_gid"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "comment-task",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "text",
+          "help": "Plain-text comment body",
+          "kind": "option",
+          "metavar": "TEXT",
+          "nargs": null,
+          "option_strings": [
+            "--text"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "text_file",
+          "help": "Read plain-text comment body from file",
+          "kind": "option",
+          "metavar": "TEXT_FILE",
+          "nargs": null,
+          "option_strings": [
+            "--text-file"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "html_text",
+          "help": "Rich-text HTML comment body",
+          "kind": "option",
+          "metavar": "HTML_TEXT",
+          "nargs": null,
+          "option_strings": [
+            "--html-text"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "html_text_file",
+          "help": "Read rich-text HTML comment body from file",
+          "kind": "option",
+          "metavar": "HTML_TEXT_FILE",
+          "nargs": null,
+          "option_strings": [
+            "--html-text-file"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "task_gid",
+          "name": "task_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Create a task story/comment",
+      "usage": "usage: asana_api.py comment-task [-h] [--text TEXT] [--text-file TEXT_FILE] [--html-text HTML_TEXT] [--html-text-file HTML_TEXT_FILE] [--compact] task_gid"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "update-story",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "text",
+          "help": "Plain-text comment body",
+          "kind": "option",
+          "metavar": "TEXT",
+          "nargs": null,
+          "option_strings": [
+            "--text"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "text_file",
+          "help": "Read plain-text comment body from file",
+          "kind": "option",
+          "metavar": "TEXT_FILE",
+          "nargs": null,
+          "option_strings": [
+            "--text-file"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "html_text",
+          "help": "Rich-text HTML comment body",
+          "kind": "option",
+          "metavar": "HTML_TEXT",
+          "nargs": null,
+          "option_strings": [
+            "--html-text"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "html_text_file",
+          "help": "Read rich-text HTML comment body from file",
+          "kind": "option",
+          "metavar": "HTML_TEXT_FILE",
+          "nargs": null,
+          "option_strings": [
+            "--html-text-file"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "story_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "story_gid",
+          "name": "story_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Update an existing story/comment",
+      "usage": "usage: asana_api.py update-story [-h] [--text TEXT] [--text-file TEXT_FILE] [--html-text HTML_TEXT] [--html-text-file HTML_TEXT_FILE] [--compact] story_gid"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "task-stories",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override story fields",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "paginate",
+          "help": "Follow Asana next_page links",
+          "kind": "flag",
+          "metavar": "PAGINATE",
+          "nargs": 0,
+          "option_strings": [
+            "--paginate"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "dest": "limit_pages",
+          "help": "Stop pagination after N pages",
+          "kind": "option",
+          "metavar": "LIMIT_PAGES",
+          "nargs": null,
+          "option_strings": [
+            "--limit-pages"
+          ],
+          "required": false,
+          "type": "int"
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gids",
+          "help": "Task gids; comma-separated values allowed",
+          "kind": "positional",
+          "metavar": "task_gids",
+          "name": "task_gids",
+          "nargs": "+",
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "List stories/comments on one or more tasks",
+      "usage": "usage: asana_api.py task-stories [-h] [--opt-fields OPT_FIELDS] [--paginate] [--limit-pages LIMIT_PAGES] [--compact] task_gids [task_gids ...]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "task-comments",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override story fields",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "paginate",
+          "help": "Follow Asana next_page links",
+          "kind": "flag",
+          "metavar": "PAGINATE",
+          "nargs": 0,
+          "option_strings": [
+            "--paginate"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "dest": "limit_pages",
+          "help": "Stop pagination after N pages",
+          "kind": "option",
+          "metavar": "LIMIT_PAGES",
+          "nargs": null,
+          "option_strings": [
+            "--limit-pages"
+          ],
+          "required": false,
+          "type": "int"
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gids",
+          "help": "Task gids; comma-separated values allowed",
+          "kind": "positional",
+          "metavar": "task_gids",
+          "name": "task_gids",
+          "nargs": "+",
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "List only comment stories on one or more tasks, including text and html_text",
+      "usage": "usage: asana_api.py task-comments [-h] [--opt-fields OPT_FIELDS] [--paginate] [--limit-pages LIMIT_PAGES] [--compact] task_gids [task_gids ...]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "task-projects",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override project fields",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gids",
+          "help": "Task gids; comma-separated values allowed",
+          "kind": "positional",
+          "metavar": "task_gids",
+          "name": "task_gids",
+          "nargs": "+",
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "List projects one or more tasks belong to",
+      "usage": "usage: asana_api.py task-projects [-h] [--opt-fields OPT_FIELDS] [--compact] task_gids [task_gids ...]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "add-task-project",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "section",
+          "help": "Section GID for placement",
+          "kind": "option",
+          "metavar": "SECTION",
+          "nargs": null,
+          "option_strings": [
+            "--section"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "insert_before",
+          "help": "Anchor task GID or literal null",
+          "kind": "option",
+          "metavar": "INSERT_BEFORE",
+          "nargs": null,
+          "option_strings": [
+            "--insert-before"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "insert_after",
+          "help": "Anchor task GID or literal null",
+          "kind": "option",
+          "metavar": "INSERT_AFTER",
+          "nargs": null,
+          "option_strings": [
+            "--insert-after"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "task_gid",
+          "name": "task_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "project_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "project_gid",
+          "name": "project_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Add or move a task within a project/section",
+      "usage": "usage: asana_api.py add-task-project [-h] [--section SECTION] [--insert-before INSERT_BEFORE] [--insert-after INSERT_AFTER] [--compact] task_gid project_gid"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "remove-task-project",
+      "options": [],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "task_gid",
+          "name": "task_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "project_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "project_gid",
+          "name": "project_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Remove a task from a project",
+      "usage": "usage: asana_api.py remove-task-project [-h] [--compact] task_gid project_gid"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "add-task-followers",
+      "options": [],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "task_gid",
+          "name": "task_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "followers",
+          "help": "Follower gids, me, exact cached user names/emails; comma-separated values allowed",
+          "kind": "positional",
+          "metavar": "followers",
+          "name": "followers",
+          "nargs": "+",
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Add followers to a task",
+      "usage": "usage: asana_api.py add-task-followers [-h] [--compact] task_gid followers [followers ...]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "remove-task-followers",
+      "options": [],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "task_gid",
+          "name": "task_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "followers",
+          "help": "Follower gids, me, exact cached user names/emails; comma-separated values allowed",
+          "kind": "positional",
+          "metavar": "followers",
+          "name": "followers",
+          "nargs": "+",
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Remove followers from a task",
+      "usage": "usage: asana_api.py remove-task-followers [-h] [--compact] task_gid followers [followers ...]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "tags",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "workspace",
+          "help": "Workspace GID override",
+          "kind": "option",
+          "metavar": "WORKSPACE",
+          "nargs": null,
+          "option_strings": [
+            "--workspace"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override tag fields",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "paginate",
+          "help": "Follow Asana next_page links",
+          "kind": "flag",
+          "metavar": "PAGINATE",
+          "nargs": 0,
+          "option_strings": [
+            "--paginate"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "dest": "limit_pages",
+          "help": "Stop pagination after N pages",
+          "kind": "option",
+          "metavar": "LIMIT_PAGES",
+          "nargs": null,
+          "option_strings": [
+            "--limit-pages"
+          ],
+          "required": false,
+          "type": "int"
+        }
+      ],
+      "positionals": [],
+      "summary": "List tags in a workspace",
+      "usage": "usage: asana_api.py tags [-h] [--workspace WORKSPACE] [--opt-fields OPT_FIELDS] [--paginate] [--limit-pages LIMIT_PAGES] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "create-tag",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "name",
+          "help": "",
+          "kind": "option",
+          "metavar": "NAME",
+          "nargs": null,
+          "option_strings": [
+            "--name"
+          ],
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "workspace",
+          "help": "Workspace GID override",
+          "kind": "option",
+          "metavar": "WORKSPACE",
+          "nargs": null,
+          "option_strings": [
+            "--workspace"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "color",
+          "help": "Tag color",
+          "kind": "option",
+          "metavar": "COLOR",
+          "nargs": null,
+          "option_strings": [
+            "--color"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "notes",
+          "help": "",
+          "kind": "option",
+          "metavar": "NOTES",
+          "nargs": null,
+          "option_strings": [
+            "--notes"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [],
+      "summary": "Create a tag",
+      "usage": "usage: asana_api.py create-tag [-h] --name NAME [--workspace WORKSPACE] [--color COLOR] [--notes NOTES] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "workspace-custom-fields",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "workspace",
+          "help": "Workspace GID override",
+          "kind": "option",
+          "metavar": "WORKSPACE",
+          "nargs": null,
+          "option_strings": [
+            "--workspace"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override field list",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "paginate",
+          "help": "Follow Asana next_page links",
+          "kind": "flag",
+          "metavar": "PAGINATE",
+          "nargs": 0,
+          "option_strings": [
+            "--paginate"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "dest": "limit_pages",
+          "help": "Stop pagination after N pages",
+          "kind": "option",
+          "metavar": "LIMIT_PAGES",
+          "nargs": null,
+          "option_strings": [
+            "--limit-pages"
+          ],
+          "required": false,
+          "type": "int"
+        }
+      ],
+      "positionals": [],
+      "summary": "List custom fields in a workspace",
+      "usage": "usage: asana_api.py workspace-custom-fields [-h] [--workspace WORKSPACE] [--opt-fields OPT_FIELDS] [--paginate] [--limit-pages LIMIT_PAGES] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "team-custom-fields",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "team",
+          "help": "Team GID or exact team name from asana-context.json",
+          "kind": "option",
+          "metavar": "TEAM",
+          "nargs": null,
+          "option_strings": [
+            "--team"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override field list",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": false,
+          "dest": "paginate",
+          "help": "Follow Asana next_page links",
+          "kind": "flag",
+          "metavar": "PAGINATE",
+          "nargs": 0,
+          "option_strings": [
+            "--paginate"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "dest": "limit_pages",
+          "help": "Stop pagination after N pages",
+          "kind": "option",
+          "metavar": "LIMIT_PAGES",
+          "nargs": null,
+          "option_strings": [
+            "--limit-pages"
+          ],
+          "required": false,
+          "type": "int"
+        }
+      ],
+      "positionals": [],
+      "summary": "List team custom field settings",
+      "usage": "usage: asana_api.py team-custom-fields [-h] [--team TEAM] [--opt-fields OPT_FIELDS] [--paginate] [--limit-pages LIMIT_PAGES] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "project-custom-fields",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override field list",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "project_gids",
+          "help": "Project gids; comma-separated values allowed",
+          "kind": "positional",
+          "metavar": "project_gids",
+          "name": "project_gids",
+          "nargs": "+",
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "List custom field settings on one or more projects",
+      "usage": "usage: asana_api.py project-custom-fields [-h] [--opt-fields OPT_FIELDS] [--compact] project_gids [project_gids ...]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "task-custom-fields",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override field list",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gids",
+          "help": "Task gids; comma-separated values allowed",
+          "kind": "positional",
+          "metavar": "task_gids",
+          "name": "task_gids",
+          "nargs": "+",
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "List custom fields on one or more tasks",
+      "usage": "usage: asana_api.py task-custom-fields [-h] [--opt-fields OPT_FIELDS] [--compact] task_gids [task_gids ...]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "create-custom-field",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "name",
+          "help": "",
+          "kind": "option",
+          "metavar": "NAME",
+          "nargs": null,
+          "option_strings": [
+            "--name"
+          ],
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "workspace",
+          "help": "Workspace GID override",
+          "kind": "option",
+          "metavar": "WORKSPACE",
+          "nargs": null,
+          "option_strings": [
+            "--workspace"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "resource_subtype",
+          "help": "Asana custom field subtype, e.g. text, number, enum, multi_enum",
+          "kind": "option",
+          "metavar": "RESOURCE_SUBTYPE",
+          "nargs": null,
+          "option_strings": [
+            "--resource-subtype"
+          ],
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "description",
+          "help": "",
+          "kind": "option",
+          "metavar": "DESCRIPTION",
+          "nargs": null,
+          "option_strings": [
+            "--description"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "precision",
+          "help": "",
+          "kind": "option",
+          "metavar": "PRECISION",
+          "nargs": null,
+          "option_strings": [
+            "--precision"
+          ],
+          "required": false,
+          "type": "int"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "enum_option",
+          "help": "Enum option name; repeat for multiple values",
+          "kind": "option",
+          "metavar": "ENUM_OPTION",
+          "nargs": null,
+          "option_strings": [
+            "--enum-option"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [],
+      "summary": "Create a workspace custom field",
+      "usage": "usage: asana_api.py create-custom-field [-h] --name NAME [--workspace WORKSPACE] --resource-subtype RESOURCE_SUBTYPE [--description DESCRIPTION] [--precision PRECISION] [--enum-option ENUM_OPTION] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "task-tags",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "opt_fields",
+          "help": "Override tag fields",
+          "kind": "option",
+          "metavar": "OPT_FIELDS",
+          "nargs": null,
+          "option_strings": [
+            "--opt-fields"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gids",
+          "help": "Task gids; comma-separated values allowed",
+          "kind": "positional",
+          "metavar": "task_gids",
+          "name": "task_gids",
+          "nargs": "+",
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "List tags on one or more tasks",
+      "usage": "usage: asana_api.py task-tags [-h] [--opt-fields OPT_FIELDS] [--compact] task_gids [task_gids ...]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "add-task-tag",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "workspace",
+          "help": "Workspace GID override for tag-name resolution",
+          "kind": "option",
+          "metavar": "WORKSPACE",
+          "nargs": null,
+          "option_strings": [
+            "--workspace"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "task_gid",
+          "name": "task_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "tag_gid",
+          "help": "Tag gid or exact tag name",
+          "kind": "positional",
+          "metavar": "tag_gid",
+          "name": "tag_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Add a tag to a task",
+      "usage": "usage: asana_api.py add-task-tag [-h] [--workspace WORKSPACE] [--compact] task_gid tag_gid"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "remove-task-tag",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "workspace",
+          "help": "Workspace GID override for tag-name resolution",
+          "kind": "option",
+          "metavar": "WORKSPACE",
+          "nargs": null,
+          "option_strings": [
+            "--workspace"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "task_gid",
+          "name": "task_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "tag_gid",
+          "help": "Tag gid or exact tag name",
+          "kind": "positional",
+          "metavar": "tag_gid",
+          "name": "tag_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Remove a tag from a task",
+      "usage": "usage: asana_api.py remove-task-tag [-h] [--workspace WORKSPACE] [--compact] task_gid tag_gid"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "set-task-sorting-tag",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "workspace",
+          "help": "Workspace GID override for tag-name resolution",
+          "kind": "option",
+          "metavar": "WORKSPACE",
+          "nargs": null,
+          "option_strings": [
+            "--workspace"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "sorting_label",
+          "help": "Allowed sorting tag name; repeat to override the default sorter set",
+          "kind": "option",
+          "metavar": "SORTING_LABEL",
+          "nargs": null,
+          "option_strings": [
+            "--sorting-label"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "task_gid",
+          "name": "task_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "sorting_tag",
+          "help": "Desired sorting tag gid or exact tag name",
+          "kind": "positional",
+          "metavar": "sorting_tag",
+          "name": "sorting_tag",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Set exactly one sorting tag on a task while preserving unrelated tags",
+      "usage": "usage: asana_api.py set-task-sorting-tag [-h] [--workspace WORKSPACE] [--sorting-label SORTING_LABEL] [--compact] task_gid sorting_tag"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "add-task-dependencies",
+      "options": [],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "task_gid",
+          "name": "task_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "dependencies",
+          "help": "Dependency task gids; comma-separated values allowed",
+          "kind": "positional",
+          "metavar": "dependencies",
+          "name": "dependencies",
+          "nargs": "+",
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Add dependencies to a task",
+      "usage": "usage: asana_api.py add-task-dependencies [-h] [--compact] task_gid dependencies [dependencies ...]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "remove-task-dependencies",
+      "options": [],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "task_gid",
+          "name": "task_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "dependencies",
+          "help": "Dependency task gids; comma-separated values allowed",
+          "kind": "positional",
+          "metavar": "dependencies",
+          "name": "dependencies",
+          "nargs": "+",
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Remove dependencies from a task",
+      "usage": "usage: asana_api.py remove-task-dependencies [-h] [--compact] task_gid dependencies [dependencies ...]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "batch",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "actions",
+          "help": "Inline JSON array of batch actions",
+          "kind": "option",
+          "metavar": "ACTIONS",
+          "nargs": null,
+          "option_strings": [
+            "--actions"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "actions_file",
+          "help": "Path to a JSON file containing a batch actions array",
+          "kind": "option",
+          "metavar": "ACTIONS_FILE",
+          "nargs": null,
+          "option_strings": [
+            "--actions-file"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [],
+      "summary": "Run an Asana batch request from a JSON array of actions",
+      "usage": "usage: asana_api.py batch [-h] [--actions ACTIONS] [--actions-file ACTIONS_FILE] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "create-project",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "name",
+          "help": "",
+          "kind": "option",
+          "metavar": "NAME",
+          "nargs": null,
+          "option_strings": [
+            "--name"
+          ],
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "team",
+          "help": "Team GID or exact team name from asana-context.json",
+          "kind": "option",
+          "metavar": "TEAM",
+          "nargs": null,
+          "option_strings": [
+            "--team"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "workspace",
+          "help": "Workspace GID override",
+          "kind": "option",
+          "metavar": "WORKSPACE",
+          "nargs": null,
+          "option_strings": [
+            "--workspace"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "notes",
+          "help": "",
+          "kind": "option",
+          "metavar": "NOTES",
+          "nargs": null,
+          "option_strings": [
+            "--notes"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [],
+      "summary": "Create a project",
+      "usage": "usage: asana_api.py create-project [-h] --name NAME [--team TEAM] [--workspace WORKSPACE] [--notes NOTES] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "update-project",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "name",
+          "help": "",
+          "kind": "option",
+          "metavar": "NAME",
+          "nargs": null,
+          "option_strings": [
+            "--name"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "notes",
+          "help": "",
+          "kind": "option",
+          "metavar": "NOTES",
+          "nargs": null,
+          "option_strings": [
+            "--notes"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "archived",
+          "help": "",
+          "kind": "option",
+          "metavar": "ARCHIVED",
+          "nargs": null,
+          "option_strings": [
+            "--archived"
+          ],
+          "required": false,
+          "type": "parse_bool"
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "project_gid",
+          "help": "",
+          "kind": "positional",
+          "metavar": "project_gid",
+          "name": "project_gid",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Update a project",
+      "usage": "usage: asana_api.py update-project [-h] [--name NAME] [--notes NOTES] [--archived ARCHIVED] [--compact] project_gid"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "show-context",
+      "options": [],
+      "positionals": [],
+      "summary": "Print local workspace/team defaults",
+      "usage": "usage: asana_api.py show-context [-h] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "show-cache",
+      "options": [],
+      "positionals": [],
+      "summary": "Print the local Asana entity cache",
+      "usage": "usage: asana_api.py show-cache [-h] [--compact]"
+    },
+    {
+      "includes_shared_options": true,
+      "name": "trigger-rule",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "task_gid",
+          "help": "Task GID where rule actions will be performed",
+          "kind": "option",
+          "metavar": "TASK_GID",
+          "nargs": null,
+          "option_strings": [
+            "--task"
+          ],
+          "required": true,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "action_data",
+          "help": "Custom key=value data available as dynamic variables in rule actions (repeatable)",
+          "kind": "option",
+          "metavar": "KEY=VALUE",
+          "nargs": null,
+          "option_strings": [
+            "--action-data"
+          ],
+          "required": false,
+          "type": null
+        }
+      ],
+      "positionals": [
+        {
+          "choices": null,
+          "default": null,
+          "dest": "trigger_identifier",
+          "help": "Trigger identifier from the Asana rule's incoming web request URL",
+          "kind": "positional",
+          "metavar": "trigger_identifier",
+          "name": "trigger_identifier",
+          "nargs": null,
+          "required": true,
+          "type": null
+        }
+      ],
+      "summary": "Trigger an existing Asana rule that has a 'web request received' trigger",
+      "usage": "usage: asana_api.py trigger-rule [-h] --task TASK_GID [--action-data KEY=VALUE] [--compact] trigger_identifier"
+    }
+  ],
+  "generator": "scripts/generate_cli_docs.py",
+  "parser_description": "Local Asana API helper",
+  "shared_options": [
+    {
+      "choices": null,
+      "default": false,
+      "dest": "compact",
+      "help": "Print compact JSON",
+      "kind": "flag",
+      "metavar": "COMPACT",
+      "nargs": 0,
+      "option_strings": [
+        "--compact"
+      ],
+      "required": false,
+      "type": null
+    }
+  ],
+  "source": "scripts/asana_api.py"
+}

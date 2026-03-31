@@ -91,6 +91,19 @@ If your agent exposes skill slash commands, the install also adds workflow-speci
 - **Direct links** — every task the AI creates or modifies includes a clickable Asana URL
 - **Workflow entrypoints** — install companion skills such as `/asana-daily-briefing` and `/asana-inbox-cleanup` that jump straight into the higher-level automation specs
 
+## CLI Reference
+
+The repo now ships a parser-derived CLI reference so agents and humans can inspect the exact command surface without repeatedly calling `--help` or rereading the Python source:
+
+- Human-readable reference: `references/cli-reference.md`
+- Machine-readable spec: `references/cli-reference.json`
+
+To regenerate both files after changing `scripts/asana_api.py`:
+
+```bash
+python3 scripts/generate_cli_docs.py
+```
+
 ## Updating
 
 The skill auto-updates in the background. To force an update manually, tell your AI:
@@ -169,9 +182,12 @@ python3 ~/Code/asana-ai-skill/scripts/asana_api.py whoami
 - `SKILL.md` plus `agents/openai.yaml` — the skill definitions
 - `entrypoints/` — companion workflow skills like `asana-daily-briefing` and `asana-inbox-cleanup`
 - `scripts/asana_api.py` — API client (standard library only)
+- `scripts/generate_cli_docs.py` — emits parser-derived CLI docs and JSON spec
 - `scripts/bootstrap_skill.py` — first-time setup
 - `scripts/install_skill.py` — local install or update
 - `scripts/update_skill.py` — self-updating installs
+- `references/cli-reference.md` — exact CLI reference for humans
+- `references/cli-reference.json` — exact CLI spec for agents and sync tests
 - `asana-context.example.json` — workspace and team defaults template
 
 ### Versioning

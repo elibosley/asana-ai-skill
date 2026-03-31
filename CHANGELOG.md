@@ -1,5 +1,13 @@
 # Changelog
 
+## [4.0.1.0] - 2026-03-31 — Add parser-derived CLI reference
+
+### Changed
+
+- **The skill now ships a parser-derived CLI reference for exact command discovery.** `references/cli-reference.md` gives agents and humans a compact, committed view of the `asana_api.py` command surface, and `references/cli-reference.json` provides the same data in a machine-readable format for low-context command lookup.
+- **CLI reference files are now generated instead of hand-maintained.** `scripts/generate_cli_docs.py` walks the `argparse` tree directly, extracts shared flags and per-command options, and regenerates both reference files from the live parser so command docs stay aligned with the code.
+- **Release validation now catches stale CLI docs before a skill update ships.** `scripts/check_release.py` now runs the CLI generator in `--check` mode, and the new regression test locks the committed reference files to the current parser so command mismatches such as unsupported guessed flags are caught locally.
+
 ## [4.0.0.0] - 2026-03-31 — Add My Tasks sorter tag normalization
 
 ### Changed

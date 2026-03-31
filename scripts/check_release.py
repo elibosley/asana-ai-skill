@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -21,6 +22,7 @@ VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)\.(\d+)$")
 CHANGELOG_HEADER_RE = re.compile(r"^## \[([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\] - ")
 CHANGELOG_PLACEHOLDER = "Describe the user-visible change here."
 RELEASE_FILES = {"VERSION", "CHANGELOG.md"}
+CLI_REFERENCE_SCRIPT = REPO_ROOT / "scripts" / "generate_cli_docs.py"
 
 
 def parse_args() -> argparse.Namespace:
@@ -110,6 +112,20 @@ def fail(message: str) -> None:
     )
 
 
+def ensure_cli_reference_synced() -> None:
+    result = subprocess.run(
+        [sys.executable, str(CLI_REFERENCE_SCRIPT), "--check"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPO_ROOT,
+    )
+    if result.returncode == 0:
+        return
+    message = result.stderr.strip() or result.stdout.strip() or "CLI reference check failed."
+    fail(f"release-check: parser-derived CLI reference is out of date.\n{message}")
+
+
 def main() -> None:
     args = parse_args()
     base, head = resolve_diff_range(args.base, args.head)
@@ -139,6 +155,8 @@ def main() -> None:
 
     if CHANGELOG_PLACEHOLDER in top_block:
         fail("release-check: top CHANGELOG entry still contains the scaffold placeholder text.")
+
+    ensure_cli_reference_synced()
 
     print(
         "release-check: ok\n"
