@@ -2,44 +2,51 @@
 
 ## Purpose
 
-Run `inbox-cleanup` as a personal PM pass over My Tasks intake.
+Run `inbox-cleanup` as an AI-gated My Tasks triage workflow.
 
-The workflow is only useful if it answers the real question:
+The workflow should not let Python decide the final buckets. Python should fetch the tasks, package the context, and apply a reviewed plan. The AI should:
 
-- what is this task actually asking for
-- what should happen next
-- what can AI do right now
-- what should be asked back to the user before acting
-
-Section moves are optional consequences of that reasoning, not the goal.
+- suggest the high-level categories for this specific inbox
+- save those categories and task decisions to JSON
+- bucket only the clear tasks automatically
+- surface ambiguous tasks as explicit user questions
+- suggest new categories or sections when the existing ones do not fit
 
 ## Core Principle
 
-`inbox-cleanup` must not behave like a blind sorter.
+`inbox-cleanup` is now a two-phase workflow:
 
-It should first determine the task read, then the next move, and only then decide whether the task belongs in:
+1. Snapshot: fetch My Tasks context and emit a planning JSON.
+2. Plan: let the AI author categories plus per-task decisions.
+3. Apply: move only the tasks approved in the plan.
 
-- `Review: Needs Next Action`
-- `Review: Needs Verification`
-- `Review: Waiting On Others`
-- `Review: Likely Ready To Close`
-- `Review: Backlog Cleanup`
-
-If the output cannot explain why the task landed in a bucket, the workflow is not done.
+The bucket decision is the AI step. Python is the fetch/apply layer.
 
 ## Use When
 
-- The user says “clean up my inbox” or “triage My Tasks”.
-- The user wants a PM-style read on intake, not raw Asana JSON.
-- The user wants to know which tasks are worth executing now versus verifying, following up, or parking.
-- The caller may optionally want safe AI-authored comments after the triage.
+- The user says “clean up my inbox”, “triage My Tasks”, or “work through my open tasks”.
+- The user wants AI to decide the categories, not just file tasks into hard-coded review columns.
+- The user wants unclear items called out before mutation.
+- The user wants a reusable JSON artifact that can be reviewed, edited, or rerun.
 
-## Works With
+## Commands
 
-- `python3 scripts/asana_api.py inbox-cleanup`
-- `python3 scripts/asana_api.py inbox-cleanup --apply`
-- `python3 scripts/asana_api.py inbox-cleanup --manager-comments`
-- `python3 scripts/asana_api.py inbox-cleanup --comment-research-todos --apply`
+Generate the snapshot and plan scaffold:
+
+```bash
+python3 scripts/asana_api.py inbox-cleanup
+python3 scripts/asana_api.py inbox-cleanup --snapshot-file /tmp/asana-inbox-snapshot.json
+python3 scripts/asana_api.py inbox-cleanup --snapshot-file /tmp/asana-inbox-snapshot.json --plan-template-file /tmp/asana-inbox-plan.json
+python3 scripts/asana_api.py inbox-cleanup --all-open --max-tasks 50
+```
+
+Preview or apply an AI-authored plan:
+
+```bash
+python3 scripts/asana_api.py inbox-cleanup --plan-file /tmp/asana-inbox-plan.json
+python3 scripts/asana_api.py inbox-cleanup --plan-file /tmp/asana-inbox-plan.json --apply
+python3 scripts/asana_api.py inbox-cleanup --plan-file /tmp/asana-inbox-plan.json --apply --include-low-confidence
+```
 
 ## Inputs
 
@@ -52,227 +59,274 @@ Optional placeholders:
 - `SOURCE_SECTION`, default `Recently assigned`
 - `ALL_OPEN`, when the user wants a wider sweep
 - `MAX_TASKS`
-- `APPLY_MODE`, preview by default
-- `COMMENT_MODE`, one of:
-  - none
-  - manager-comments
-  - comment-research-todos
+- `SNAPSHOT_FILE`
+- `PLAN_TEMPLATE_FILE`
+- `PLAN_FILE`
+- `INCLUDE_LOW_CONFIDENCE`
 
-## Required Reasoning Per Task
+## Snapshot Contract
 
-The workflow should read:
+`inbox-cleanup` without `--plan-file` emits a snapshot payload with:
 
-- task title
-- notes / description
-- project and section context
-- due date
-- recent comments
-- PR links or inline `PR #123` references
-- docs / spec / spreadsheet links
+- `workflow: "asana_inbox_cleanup_snapshot"`
+- `version`
+- `generated_at`
+- `my_tasks`
+- `source_sections`
+- `all_open`
+- `current_section_counts`
+- `existing_sections`
+- `starter_category_seeds`
+- `tasks`
+- `legacy_review_hints`
+- `instructions`
+- `plan_template`
 
-Then it should produce:
+Each task in `tasks` includes hints that the AI can use while planning:
 
-- `task_read`
-  - one or two sentences on what the task really is
-  - example: “This is a scoping/decision task, not implementation yet.”
-- `classification_basis`
-  - why it landed in the chosen bucket
-  - example: “Recent comments plus `Test` project state point to verification, not net-new work.”
-- `next_action`
-  - the concrete next move
-- `todo_items`
-  - a short, specific checklist
+- `task_gid`
+- `name`
+- `permalink_url`
+- `current_section`
+- `project_state`
+- `due_date`
+- `reasons`
+- `linked_prs`
+- `task_read_hint`
+- `classification_basis_hint`
+- `suggested_next_action_hint`
+- `ask_user_hint`
+- `ai_help_summary_hint`
+- `active_ai_action_hint`
+- `legacy_category_hint`
+- `legacy_target_section_hint`
+
+The `legacy_*` fields are only hints. They are not the final answer.
+
+## Plan Contract
+
+The AI should author a JSON object with:
+
+- `workflow: "asana_inbox_cleanup_plan"`
+- `version`
+- `generated_at`
+- `my_tasks_gid`
+- `source`
+- `categories`
+- `tasks`
+
+### Categories
+
+`categories` should reflect the actual inbox, not a fixed global taxonomy.
+
+Each category should include:
+
+- `slug`
+- `name`
+- `target_section_name`
+- `description`
+
+Suggested starting seeds:
+
+- `execute_now`
+- `needs_verification`
+- `waiting_on_others`
+- `likely_ready_to_close`
+- `backlog_or_not_now`
+- `needs_user_input`
+
+The AI may replace, merge, or extend those seeds. If the inbox clearly needs a better fit, add a new category and section such as:
+
+- `urgent-decisions`
+- `needs-scoping`
+- `release-watch`
+- `customer-follow-up`
+
+### Tasks
+
+Each task entry should include:
+
+- `task_gid`
+- `name`
+- `decision`
+- `category_slug`
+- `target_section_name`
+- `confidence`
+- `why`
+- `question`
+- `notes`
+
+Allowed `decision` values:
+
+- `bucket`
 - `ask_user`
-  - the one question that would unblock action fastest
-- `ai_help_now`
-  - boolean
-- `ai_help_summary`
-  - what AI can do immediately if the user says yes
-- `active_ai_action`
-  - one of:
-    - `ask_to_execute_now`
-    - `ask_to_verify`
-    - `ask_to_follow_up`
-    - `ask_to_close`
-    - `no_ai_action`
+- `leave_as_is`
 
-## Behavioral Rules
+Recommended `confidence` values:
 
-### 1. Determine the task read before moving anything
+- `high`
+- `medium`
+- `low`
 
-Every surfaced task must have a real read of the work, not just a category label.
+## Planning Rules
 
-Good:
+### 1. Suggest categories before bucketing
 
-- “This is a writing/recommendation task. The missing artifact is the first draft.”
-- “This no longer looks like implementation. It looks like verification against PR #2593.”
-- “This is blocked on another person or team; the next move is a concrete unblock ask.”
+Do not start by assigning tasks to the default review sections.
 
-Bad:
+First look across the task list and answer:
 
-- “Implementation task”
-- “Needs next action”
-- “Follow up”
+- what kinds of work are actually present
+- which categories matter today
+- which existing sections fit
+- which tasks need a new section/category
 
-### 2. Separate AI execution from comment safety
+### 2. Only auto-bucket high-confidence tasks
 
-A shared task can still be a good `ask_to_execute_now` candidate.
+If the next move is clear, the AI should set:
 
-Do not suppress AI execution recommendations just because:
+- `decision: "bucket"`
+- a concrete `category_slug`
+- a concrete `target_section_name`
 
-- the task is in a shared project
-- there are other followers
-- manager comments are disabled
+If the next move is not clear, use:
 
-Those conditions should only block auto-commenting, not the recommendation itself.
+- `decision: "ask_user"`
+- a specific `question`
 
-### 3. Prefer deliverables over vague verbs
+### 3. Leave bad fits alone unless a better category exists
 
-When titles contain verbs like:
+If a task does not fit any current category and the AI cannot confidently invent a better one, keep it interactive:
 
-- `draft`
-- `decide`
-- `clarify`
-- `validate`
-- `scope`
-- `recommend`
+- `decision: "ask_user"`
 
-the next action should name the missing artifact:
+If there is a clear pattern across several tasks, add a new category and use it.
 
-- memo
-- recommendation
-- scoped proposal
-- close-out note
-- unblock message
+### 4. Prefer real work reads over filing labels
 
-### 4. Verification is not execution
+For each task the AI should still determine:
 
-Tasks that mention:
+- what this task really is
+- why that category fits
+- the next practical move
+- what user input is still missing
 
-- `Test`
-- `QA`
-- `staging`
-- `preview`
-- `beta`
-- `PR #123`
-- “please test”
-- screenshots or shipped evidence
+### 5. Questions should unblock action
 
-should usually become verification work, not default implementation work.
+Good `question` examples:
 
-### 5. Waiting is not backlog
+- “Is this still waiting on legal, or should this move back into active drafting?”
+- “Do you want this treated as release verification or as a reopen-and-fix task?”
+- “Is this still priority this week, or should it be parked in backlog cleanup?”
 
-If the strongest signal is dependency or handoff, the workflow should say:
+Bad `question` examples:
 
-- who is blocking
-- what should be asked
-- what date/checkpoint should be recorded
+- “What do you want to do?”
+- “Please clarify.”
 
-Do not dump these into a generic “follow up later” bucket.
+## Apply Rules
 
-## Output Contract
+When `--plan-file` is passed without `--apply`, the helper previews what would happen.
 
-The output should be useful enough that a human can act on it immediately.
+When `--apply` is passed:
 
-Minimum useful shape:
+- move only tasks with `decision: "bucket"`
+- create missing target sections when needed
+- leave `ask_user` tasks untouched
+- leave `leave_as_is` tasks untouched
+- leave low-confidence bucket decisions untouched unless `--include-low-confidence` is set
+- never complete tasks
 
-```text
-# Inbox Cleanup
+## Example Plan
 
-Short paragraph on the state of intake and whether this is preview or apply.
-
-## Task Name
-- Task read: what this really is
-- Why this bucket: why it landed there
-- Suggested next action: the concrete next move
-- TODOs: specific checklist
-- Ask user: the one missing question
-- AI can help now: yes/no + how
-- Active AI action: ask_to_execute_now
+```json
+{
+  "workflow": "asana_inbox_cleanup_plan",
+  "version": 1,
+  "generated_at": "2026-03-31T13:45:00Z",
+  "my_tasks_gid": "123",
+  "source": {
+    "workflow": "asana_inbox_cleanup_snapshot",
+    "generated_at": "2026-03-31T13:40:00Z",
+    "all_open": true
+  },
+  "categories": [
+    {
+      "slug": "release-watch",
+      "name": "Release Watch",
+      "target_section_name": "Release / Ship Watch",
+      "description": "Tasks that need verification, rollout watching, or close-out after a PR already landed."
+    },
+    {
+      "slug": "urgent-decisions",
+      "name": "Urgent Decisions",
+      "target_section_name": "Urgent Decisions",
+      "description": "Decision-heavy tasks that block other work and need the user's call."
+    }
+  ],
+  "tasks": [
+    {
+      "task_gid": "456",
+      "name": "Verify PR #2593 on staging",
+      "decision": "bucket",
+      "category_slug": "release-watch",
+      "target_section_name": "Release / Ship Watch",
+      "confidence": "high",
+      "why": "The task already references a shipped PR and the next move is verification, not new implementation.",
+      "question": "",
+      "notes": "Treat as verification queue."
+    },
+    {
+      "task_gid": "789",
+      "name": "Decide CRA customer communication",
+      "decision": "ask_user",
+      "category_slug": "urgent-decisions",
+      "target_section_name": "",
+      "confidence": "low",
+      "why": "It is clearly a decision task, but the urgency and owner expectation are still ambiguous.",
+      "question": "Do you want to handle this personally now, or should AI draft the recommendation first?",
+      "notes": ""
+    }
+  ]
+}
 ```
-
-If the workflow cannot fill these fields, it should say the task is under-specified instead of pretending otherwise.
-
-## Write Mode Rules
-
-Preview is the default.
-
-In `--apply` mode:
-
-- move tasks only after the task read and classification are clear
-- do not complete tasks
-- do not post manager comments unless explicitly requested
-- keep AI-authored comments conservative
-
-## Comment Safety Rules
-
-### Manager Comments
-
-Only post manager-style comments when the task looks truly private:
-
-- no shared project context that suggests a wider audience
-- no parent-task context that broadens visibility
-- no non-assignee followers or collaborators
-- no comment history from anyone other than the assignee
-
-### Research TODO Comments
-
-Use `--comment-research-todos` when the user wants investigation prompts without a broader PM-style narrative.
 
 ## Prompt Template
 
 ```text
 Use the installed Asana skill.
 
-Run the inbox-cleanup workflow for the current user.
+Run `python3 scripts/asana_api.py inbox-cleanup --all-open --snapshot-file /tmp/asana-inbox-snapshot.json --plan-template-file /tmp/asana-inbox-plan.json`.
 
-Default to the Recently assigned My Tasks section unless I explicitly ask for a broader sweep.
+Read the snapshot JSON and decide what high-level categories this inbox actually needs.
 
-Treat this as a personal PM pass, not a section-sorting pass.
+Write an AI-authored plan JSON to `/tmp/asana-inbox-plan.json`:
+- define categories first
+- bucket only high-confidence tasks
+- leave ambiguous tasks as `ask_user`
+- suggest new categories or section names when the existing ones do not fit
 
-For each task, determine:
-- what this task really is
-- why it belongs in this bucket
-- what should happen next
-- the TODO list
-- what you need to ask me before acting
-- whether AI can help now, and how
-- the active_ai_action
+Then preview the plan with:
+`python3 scripts/asana_api.py inbox-cleanup --plan-file /tmp/asana-inbox-plan.json`
 
-Only after that should you move the task into a review bucket.
-
-Do not complete tasks.
-
-Only post AI-authored comments if I explicitly ask for them and the task is private enough.
+Only apply it if the user confirms:
+`python3 scripts/asana_api.py inbox-cleanup --plan-file /tmp/asana-inbox-plan.json --apply`
 ```
 
 ## Invocation Short Forms
 
-- `Use the Asana skill and run the full spec in references/automations/inbox-cleanup.md.`
-- `Run inbox-cleanup as a personal PM pass for me.`
-- `Tell me what each intake task actually is and what should happen next.`
-- `Use inbox-cleanup, but do not stop at reclassification.`
+- `Use the Asana skill and run the AI-gated inbox cleanup spec.`
+- `Generate an inbox snapshot, suggest categories, and write the cleanup plan JSON.`
+- `Do not auto-sort my tasks. Propose the categories first, then bucket the clear ones.`
+- `Run inbox-cleanup interactively and leave the unclear tasks as questions for me.`
 
 ## Scheduling Guidance
 
 Good recurring uses:
 
-- morning intake sweeps
-- end-of-day review passes
-- weekly cleanup windows
+- morning intake sweeps that stop at plan generation
+- weekly all-open My Tasks reviews where the AI updates categories for the current backlog shape
 
-Preview-only schedules are safer than scheduled write modes.
+Less suitable:
 
-## Validation Checklist
-
-- Confirm the run stayed inside the requested My Tasks scope.
-- Confirm tasks were not completed.
-- Confirm every surfaced task has `task_read`, `classification_basis`, `next_action`, `ask_user`, and AI-help guidance.
-- Confirm section moves happened only after reasoning.
-- Confirm comments, if any, were posted only on private-looking tasks.
-- Confirm `active_ai_action` reflects the real next move, not just comment privacy.
-
-## Relationship To Cookbook
-
-This file is the full workflow spec.
-The shorter discovery entry lives in `references/recipes.md`.
+- fully unattended task moves without a reviewed plan

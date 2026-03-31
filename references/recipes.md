@@ -127,15 +127,15 @@ Clean up My Tasks intake into review buckets:
 
 ```bash
 python3 scripts/asana_api.py inbox-cleanup
-python3 scripts/asana_api.py inbox-cleanup --apply
-python3 scripts/asana_api.py inbox-cleanup --source-section "Recently assigned" --apply
+python3 scripts/asana_api.py inbox-cleanup --snapshot-file /tmp/asana-inbox-snapshot.json --plan-template-file /tmp/asana-inbox-plan.json
 python3 scripts/asana_api.py inbox-cleanup --all-open --max-tasks 50
-python3 scripts/asana_api.py inbox-cleanup --manager-comments
-python3 scripts/asana_api.py inbox-cleanup --comment-research-todos --apply
+python3 scripts/asana_api.py inbox-cleanup --plan-file /tmp/asana-inbox-plan.json
+python3 scripts/asana_api.py inbox-cleanup --plan-file /tmp/asana-inbox-plan.json --apply
+python3 scripts/asana_api.py inbox-cleanup --plan-file /tmp/asana-inbox-plan.json --apply --include-low-confidence
 ```
 
-Use `inbox-cleanup` when the question is "clean up my My Tasks intake and tell me what each task actually needs".
-Treat it as a personal PM workflow rather than a filing pass: it should determine the task read first, explain why each task belongs in its bucket, propose a concrete next action, surface `ask_user`, `ai_help_now`, and `active_ai_action`, and only then move the task when the classification is clear.
+Use `inbox-cleanup` when the question is "clean up my My Tasks intake and let AI decide the categories and buckets".
+Treat it as an AI-gated workflow rather than a filing pass: the first run emits a snapshot plus plan scaffold, the AI defines the categories and per-task decisions in JSON, and only the approved plan is previewed or applied. Ambiguous tasks should stay interactive with `ask_user` questions instead of being auto-bucketed by Python.
 
 Full spec:
 
