@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.0.0.0] - 2026-03-31 — Batch lookup support for read commands
+
+### Changed
+
+- **Lookup-style read commands now support one-or-many gids in a single invocation.** Commands such as `task`, `story`, `project`, `section`, `task-bundle`, `task-status`, `task-stories`, `task-comments`, `task-projects`, `task-tags`, `project-custom-fields`, and `task-custom-fields` now accept multiple gids directly instead of forcing one subprocess per lookup.
+- **Bulk lookups now use Asana batch requests under the hood.** The helper chunks request sets to the API batch limit, reuses shared workflow metadata for multi-task status lookups, and avoids redundant project-section fetches when several tasks belong to the same board.
+- **The lookup response shape is now consistent for single and multi-item reads.** These commands now return a wrapper with `command`, `count`, and `items`, where each item records the `requested_gid`, the API `status_code`, and the command-specific `result`.
+- **The daily briefing and inbox cleanup workflows are now fully AI-gated and backed by dedicated long-form automation specs.** The helper emits plan scaffolds, the docs now separate short recipes from execution-ready automation references, and the supporting tests cover the new planning and manager-comment behavior.
+
 ## [1.1.0.0] - 2026-03-30 — Expand automation documentation
 
 ### Changed

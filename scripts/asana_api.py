@@ -30,6 +30,7 @@ from urllib import error, parse, request
 
 
 BASE_URL = "https://app.asana.com/api/1.0"
+BATCH_ACTION_LIMIT = 10
 SKILL_DIR = Path(__file__).resolve().parent.parent
 LOCAL_STATE_DIR = Path.home() / ".agent-skills" / "asana"
 LEGACY_LOCAL_STATE_DIR = Path.home() / ".codex" / "skills-data" / "asana"
@@ -523,6 +524,16 @@ def parse_many_gid(items: list[str] | None) -> list[str]:
     return values
 
 
+def parse_gid_args(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return parse_many_gid([value])
+    if isinstance(value, (list, tuple)):
+        return parse_many_gid([str(item) for item in value if item is not None])
+    raise SystemExit(f"Expected a gid or list of gids, got: {type(value).__name__}")
+
+
 def nullable_arg(value: str | None) -> str | None:
     if value is None:
         return None
@@ -924,6 +935,23 @@ def batch_actions_request(token: str, actions: list[dict[str, Any]]) -> Any:
     )
 
 
+def chunked(items: list[Any], size: int) -> list[list[Any]]:
+    if size <= 0:
+        raise ValueError("Chunk size must be positive")
+    return [items[index : index + size] for index in range(0, len(items), size)]
+
+
+def batch_actions_request_chunked(token: str, actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    aggregated: list[dict[str, Any]] = []
+    for action_group in chunked(actions, BATCH_ACTION_LIMIT):
+        response = batch_actions_request(token, action_group)
+        data = response.get("data", [])
+        if not isinstance(data, list):
+            raise SystemExit("Batch response did not contain a data array")
+        aggregated.extend(item for item in data if isinstance(item, dict))
+    return aggregated
+
+
 def batch_body_at(response: Any, index: int) -> Any:
     data = response.get("data", [])
     if index >= len(data):
@@ -941,6 +969,16 @@ def section_order_from_sections(sections: list[dict[str, Any]]) -> dict[str, int
         if section_gid:
             order_map[section_gid] = index
     return order_map
+
+
+def render_many_results(command_name: str, entries: list[dict[str, Any]], compact: bool) -> dict[str, Any]:
+    payload = {
+        "command": command_name,
+        "count": len(entries),
+        "items": entries,
+    }
+    print_json(payload, compact)
+    return payload
 
 
 def extract_image_urls_from_html(html: str | None) -> list[str]:
@@ -2437,52 +2475,97 @@ def command_users(args: argparse.Namespace) -> Any:
 
 def command_task(args: argparse.Namespace) -> Any:
     token = get_token(args)
-    response = api_request(
-        token=token,
-        method="GET",
-        path_or_url=f"/tasks/{args.task_gid}",
-        query={
-            "opt_fields": args.opt_fields
-            or "gid,name,resource_subtype,completed,assignee.name,due_on,due_at,"
-            "projects.name,memberships.section.name,parent.name,permalink_url,notes",
-        },
+    task_gids = parse_gid_args(getattr(args, "task_gids", None) or getattr(args, "task_gid", None))
+    opt_fields = (
+        args.opt_fields
+        or "gid,name,resource_subtype,completed,assignee.name,due_on,due_at,"
+        "projects.name,memberships.section.name,parent.name,permalink_url,notes"
     )
-    print_json(response, args.compact)
-    return response
+    actions = [
+        {
+            "method": "get",
+            "relative_path": f"/tasks/{task_gid}",
+            "options": {"fields": field_list(opt_fields)},
+        }
+        for task_gid in task_gids
+    ]
+    items = batch_actions_request_chunked(token, actions)
+    return render_many_results(
+        "task",
+        [
+            {
+                "requested_gid": task_gid,
+                "status_code": item.get("status_code", 200),
+                "result": item.get("body", {}),
+            }
+            for task_gid, item in zip(task_gids, items)
+        ],
+        args.compact,
+    )
 
 
 def command_story(args: argparse.Namespace) -> Any:
     token = get_token(args)
-    response = api_request(
-        token=token,
-        method="GET",
-        path_or_url=f"/stories/{args.story_gid}",
-        query={"opt_fields": args.opt_fields or story_detail_opt_fields()},
+    story_gids = parse_gid_args(getattr(args, "story_gids", None) or getattr(args, "story_gid", None))
+    opt_fields = args.opt_fields or story_detail_opt_fields()
+    actions = [
+        {
+            "method": "get",
+            "relative_path": f"/stories/{story_gid}",
+            "options": {"fields": field_list(opt_fields)},
+        }
+        for story_gid in story_gids
+    ]
+    items = batch_actions_request_chunked(token, actions)
+    return render_many_results(
+        "story",
+        [
+            {
+                "requested_gid": story_gid,
+                "status_code": item.get("status_code", 200),
+                "result": response_with_review_links(item.get("body", {})),
+            }
+            for story_gid, item in zip(story_gids, items)
+        ],
+        args.compact,
     )
-    response = response_with_review_links(response)
-    print_json(response, args.compact)
-    return response
 
 
 def command_project(args: argparse.Namespace) -> Any:
     token = get_token(args)
-    response = api_request(
-        token=token,
-        method="GET",
-        path_or_url=f"/projects/{args.project_gid}",
-        query={
-            "opt_fields": args.opt_fields
-            or "gid,name,team.name,owner.name,public,archived,current_status,"
-            "default_view,created_at,permalink_url,notes",
-        },
+    project_gids = parse_gid_args(getattr(args, "project_gids", None) or getattr(args, "project_gid", None))
+    opt_fields = (
+        args.opt_fields
+        or "gid,name,team.name,owner.name,public,archived,current_status,"
+        "default_view,created_at,permalink_url,notes"
     )
     cache = load_cache()
-    project = response.get("data", {})
-    if isinstance(project, dict):
-        cache_record(cache, "projects", project_cache_record(project))
-        save_cache(cache)
-    print_json(response, args.compact)
-    return response
+    actions = [
+        {
+            "method": "get",
+            "relative_path": f"/projects/{project_gid}",
+            "options": {"fields": field_list(opt_fields)},
+        }
+        for project_gid in project_gids
+    ]
+    items = batch_actions_request_chunked(token, actions)
+    for item in items:
+        project = (item.get("body") or {}).get("data", {})
+        if isinstance(project, dict):
+            cache_record(cache, "projects", project_cache_record(project))
+    save_cache(cache)
+    return render_many_results(
+        "project",
+        [
+            {
+                "requested_gid": project_gid,
+                "status_code": item.get("status_code", 200),
+                "result": item.get("body", {}),
+            }
+            for project_gid, item in zip(project_gids, items)
+        ],
+        args.compact,
+    )
 
 
 def command_project_tasks(args: argparse.Namespace) -> Any:
@@ -2512,14 +2595,29 @@ def command_sections(args: argparse.Namespace) -> Any:
 
 def command_section(args: argparse.Namespace) -> Any:
     token = get_token(args)
-    response = api_request(
-        token=token,
-        method="GET",
-        path_or_url=f"/sections/{args.section_gid}",
-        query={"opt_fields": args.opt_fields or section_opt_fields("gid,name,project.name")},
+    section_gids = parse_gid_args(getattr(args, "section_gids", None) or getattr(args, "section_gid", None))
+    opt_fields = args.opt_fields or section_opt_fields("gid,name,project.name")
+    actions = [
+        {
+            "method": "get",
+            "relative_path": f"/sections/{section_gid}",
+            "options": {"fields": field_list(opt_fields)},
+        }
+        for section_gid in section_gids
+    ]
+    items = batch_actions_request_chunked(token, actions)
+    return render_many_results(
+        "section",
+        [
+            {
+                "requested_gid": section_gid,
+                "status_code": item.get("status_code", 200),
+                "result": item.get("body", {}),
+            }
+            for section_gid, item in zip(section_gids, items)
+        ],
+        args.compact,
     )
-    print_json(response, args.compact)
-    return response
 
 
 def command_section_tasks(args: argparse.Namespace) -> Any:
@@ -2747,64 +2845,127 @@ def command_close_out_sections(args: argparse.Namespace) -> Any:
 
 def command_task_stories(args: argparse.Namespace) -> Any:
     token = get_token(args)
-    response = api_request(
-        token=token,
-        method="GET",
-        path_or_url=f"/tasks/{args.task_gid}/stories",
-        query={"opt_fields": args.opt_fields or story_opt_fields()},
+    task_gids = parse_gid_args(getattr(args, "task_gids", None) or getattr(args, "task_gid", None))
+    opt_fields = args.opt_fields or story_opt_fields()
+    if args.paginate:
+        entries = []
+        for task_gid in task_gids:
+            response = api_request(
+                token=token,
+                method="GET",
+                path_or_url=f"/tasks/{task_gid}/stories",
+                query={"opt_fields": opt_fields},
+            )
+            response = maybe_paginate(token, response, True, args.limit_pages)
+            entries.append({"requested_gid": task_gid, "status_code": 200, "result": response})
+        return render_many_results("task-stories", entries, args.compact)
+
+    actions = [
+        {
+            "method": "get",
+            "relative_path": f"/tasks/{task_gid}/stories",
+            "options": {"fields": field_list(opt_fields)},
+        }
+        for task_gid in task_gids
+    ]
+    items = batch_actions_request_chunked(token, actions)
+    return render_many_results(
+        "task-stories",
+        [
+            {
+                "requested_gid": task_gid,
+                "status_code": item.get("status_code", 200),
+                "result": item.get("body", {}),
+            }
+            for task_gid, item in zip(task_gids, items)
+        ],
+        args.compact,
     )
-    response = maybe_paginate(token, response, args.paginate, args.limit_pages)
-    print_json(response, args.compact)
-    return response
 
 
 def command_task_comments(args: argparse.Namespace) -> Any:
     token = get_token(args)
-    response = api_request(
-        token=token,
-        method="GET",
-        path_or_url=f"/tasks/{args.task_gid}/stories",
-        query={"opt_fields": args.opt_fields or story_opt_fields()},
-    )
-    response = maybe_paginate(token, response, args.paginate, args.limit_pages)
-    comments = [
-        story
-        for story in response.get("data", [])
-        if story.get("type") == "comment" or story.get("resource_subtype") == "comment_added"
-    ]
-    payload = {
-        "data": comments,
-        "comment_count": len(comments),
-        "task_gid": args.task_gid,
-    }
-    print_json(payload, args.compact)
-    return payload
+    task_gids = parse_gid_args(getattr(args, "task_gids", None) or getattr(args, "task_gid", None))
+    opt_fields = args.opt_fields or story_opt_fields()
+    entries = []
+    if args.paginate:
+        story_responses = []
+        for task_gid in task_gids:
+            response = api_request(
+                token=token,
+                method="GET",
+                path_or_url=f"/tasks/{task_gid}/stories",
+                query={"opt_fields": opt_fields},
+            )
+            story_responses.append(maybe_paginate(token, response, True, args.limit_pages))
+    else:
+        actions = [
+            {
+                "method": "get",
+                "relative_path": f"/tasks/{task_gid}/stories",
+                "options": {"fields": field_list(opt_fields)},
+            }
+            for task_gid in task_gids
+        ]
+        story_responses = [item.get("body", {}) for item in batch_actions_request_chunked(token, actions)]
+
+    for task_gid, response in zip(task_gids, story_responses):
+        comments = [
+            story
+            for story in response.get("data", [])
+            if story.get("type") == "comment" or story.get("resource_subtype") == "comment_added"
+        ]
+        entries.append(
+            {
+                "requested_gid": task_gid,
+                "status_code": 200,
+                "result": {
+                    "data": comments,
+                    "comment_count": len(comments),
+                    "task_gid": task_gid,
+                },
+            }
+        )
+    return render_many_results("task-comments", entries, args.compact)
 
 
 def command_task_projects(args: argparse.Namespace) -> Any:
     token = get_token(args)
-    response = api_request(
-        token=token,
-        method="GET",
-        path_or_url=f"/tasks/{args.task_gid}/projects",
-        query={"opt_fields": args.opt_fields or "gid,name"},
+    task_gids = parse_gid_args(getattr(args, "task_gids", None) or getattr(args, "task_gid", None))
+    opt_fields = args.opt_fields or "gid,name"
+    actions = [
+        {
+            "method": "get",
+            "relative_path": f"/tasks/{task_gid}/projects",
+            "options": {"fields": field_list(opt_fields)},
+        }
+        for task_gid in task_gids
+    ]
+    items = batch_actions_request_chunked(token, actions)
+    return render_many_results(
+        "task-projects",
+        [
+            {
+                "requested_gid": task_gid,
+                "status_code": item.get("status_code", 200),
+                "result": item.get("body", {}),
+            }
+            for task_gid, item in zip(task_gids, items)
+        ],
+        args.compact,
     )
-    print_json(response, args.compact)
-    return response
 
 
-def command_task_status(args: argparse.Namespace) -> Any:
-    token = get_token(args)
-    response = api_request(
-        token=token,
-        method="GET",
-        path_or_url=f"/tasks/{args.task_gid}",
-        query={"opt_fields": args.opt_fields or task_status_fields()},
-    )
-    task = response.get("data", {})
+def build_task_status_payload(
+    task: dict[str, Any],
+    *,
+    project_filter: str | None,
+    include_task_position: bool,
+    section_cache: dict[str, tuple[list[dict[str, Any]], dict[str, int]]],
+    task_positions_by_section: dict[str, dict[str, int]],
+) -> dict[str, Any]:
     memberships = task.get("memberships") or []
     membership_summaries: list[dict[str, Any]] = []
-    project_filter = args.project
 
     for membership in memberships:
         project = membership.get("project") or {}
@@ -2813,37 +2974,25 @@ def command_task_status(args: argparse.Namespace) -> Any:
         if project_filter and project_gid != project_filter:
             continue
 
-        sections, order_map = section_order_map(token, project_gid) if project_gid else ([], {})
+        sections, order_map = section_cache.get(project_gid, ([], {})) if project_gid else ([], {})
         section_gid = section.get("gid")
-        section_name = section.get("name")
-        section_position = order_map.get(section_gid)
         task_position = None
-
-        if args.include_task_position and section_gid:
-            section_tasks = api_request(
-                token=token,
-                method="GET",
-                path_or_url=f"/sections/{section_gid}/tasks",
-                query={"opt_fields": "gid"},
-            ).get("data", [])
-            for index, section_task in enumerate(section_tasks, start=1):
-                if section_task.get("gid") == args.task_gid:
-                    task_position = index
-                    break
+        if include_task_position and section_gid:
+            task_position = (task_positions_by_section.get(section_gid) or {}).get(str(task.get("gid") or ""))
 
         membership_summaries.append(
             {
                 "project_gid": project_gid,
                 "project_name": project.get("name"),
                 "section_gid": section_gid,
-                "section_name": section_name,
-                "section_position": section_position,
+                "section_name": section.get("name"),
+                "section_position": order_map.get(section_gid),
                 "section_count": len(sections),
                 "task_position_in_section": task_position,
             }
         )
 
-    payload = {
+    return {
         "task_gid": task.get("gid"),
         "name": task.get("name"),
         "completed": task.get("completed"),
@@ -2855,8 +3004,67 @@ def command_task_status(args: argparse.Namespace) -> Any:
         "custom_fields": task.get("custom_fields", []),
         "memberships": membership_summaries,
     }
-    print_json(payload, args.compact)
-    return payload
+
+
+def command_task_status(args: argparse.Namespace) -> Any:
+    token = get_token(args)
+    task_gids = parse_gid_args(getattr(args, "task_gids", None) or getattr(args, "task_gid", None))
+    opt_fields = args.opt_fields or task_status_fields()
+    project_filter = args.project
+
+    actions = [
+        {
+            "method": "get",
+            "relative_path": f"/tasks/{task_gid}",
+            "options": {"fields": field_list(opt_fields)},
+        }
+        for task_gid in task_gids
+    ]
+    items = batch_actions_request_chunked(token, actions)
+    tasks = [(item.get("body") or {}).get("data", {}) for item in items]
+
+    project_gids: list[str] = []
+    for task in tasks:
+        for membership in task.get("memberships") or []:
+            project = membership.get("project") or {}
+            project_gid = str(project.get("gid") or "").strip()
+            if not project_gid or (project_filter and project_gid != project_filter) or project_gid in project_gids:
+                continue
+            project_gids.append(project_gid)
+
+    section_cache = {project_gid: section_order_map(token, project_gid) for project_gid in project_gids}
+
+    task_positions_by_section: dict[str, dict[str, int]] = {}
+    if args.include_task_position:
+        section_gids: list[str] = []
+        for task in tasks:
+            for membership in task.get("memberships") or []:
+                project = membership.get("project") or {}
+                if project_filter and project.get("gid") != project_filter:
+                    continue
+                section_gid = str(((membership.get("section") or {}).get("gid")) or "").strip()
+                if section_gid and section_gid not in section_gids:
+                    section_gids.append(section_gid)
+        task_positions_by_section = section_task_positions_map(token, section_gids)
+
+    return render_many_results(
+        "task-status",
+        [
+            {
+                "requested_gid": task_gid,
+                "status_code": item.get("status_code", 200),
+                "result": build_task_status_payload(
+                    task,
+                    project_filter=project_filter,
+                    include_task_position=bool(args.include_task_position),
+                    section_cache=section_cache,
+                    task_positions_by_section=task_positions_by_section,
+                ),
+            }
+            for task_gid, item, task in zip(task_gids, items, tasks)
+        ],
+        args.compact,
+    )
 
 
 def compute_board_context(
@@ -3072,15 +3280,22 @@ def command_trigger_rule(args: argparse.Namespace) -> Any:
     return result
 
 
-def command_task_bundle(args: argparse.Namespace) -> Any:
-    token = get_token(args)
+def build_task_bundle_payload(
+    token: str,
+    *,
+    task_gid: str,
+    project_gid: str | None,
+    task_opt_fields: str | None,
+    story_opt_fields_value: str | None,
+    attachment_opt_fields: str | None,
+) -> dict[str, Any]:
     actions = [
         {
             "method": "get",
-            "relative_path": f"/tasks/{args.task_gid}",
+            "relative_path": f"/tasks/{task_gid}",
             "options": {
                 "fields": field_list(
-                    args.task_opt_fields
+                    task_opt_fields
                     or "gid,name,notes,html_notes,resource_subtype,completed,completed_at,assignee.gid,assignee.name,"
                     "due_on,due_at,permalink_url,parent.gid,parent.name,memberships.project.gid,memberships.project.name,"
                     "memberships.section.gid,memberships.section.name,custom_fields.gid,custom_fields.name,"
@@ -3090,32 +3305,32 @@ def command_task_bundle(args: argparse.Namespace) -> Any:
         },
         {
             "method": "get",
-            "relative_path": f"/tasks/{args.task_gid}/stories",
-            "options": {"fields": field_list(args.story_opt_fields or story_opt_fields())},
+            "relative_path": f"/tasks/{task_gid}/stories",
+            "options": {"fields": field_list(story_opt_fields_value or story_opt_fields())},
         },
         {
             "method": "get",
-            "relative_path": f"/tasks/{args.task_gid}/attachments",
+            "relative_path": f"/tasks/{task_gid}/attachments",
             "options": {
                 "fields": field_list(
-                    args.attachment_opt_fields
+                    attachment_opt_fields
                     or "gid,name,resource_subtype,download_url,permanent_url,view_url,host,parent_type,parent.name"
                 )
             },
         },
     ]
-    if args.project_gid:
+    if project_gid:
         actions.append(
             {
                 "method": "get",
-                "relative_path": f"/projects/{args.project_gid}/sections",
+                "relative_path": f"/projects/{project_gid}/sections",
                 "options": {"fields": field_list(section_opt_fields())},
             }
         )
         actions.append(
             {
                 "method": "get",
-                "relative_path": f"/projects/{args.project_gid}/custom_field_settings",
+                "relative_path": f"/projects/{project_gid}/custom_field_settings",
                 "options": {"fields": field_list(custom_field_setting_opt_fields())},
             }
         )
@@ -3124,15 +3339,15 @@ def command_task_bundle(args: argparse.Namespace) -> Any:
     task = batch_body_at(batch_response, 0).get("data", {})
     stories = batch_body_at(batch_response, 1).get("data", [])
     attachments = batch_body_at(batch_response, 2).get("data", [])
-    sections = batch_body_at(batch_response, 3).get("data", []) if args.project_gid else []
-    project_custom_field_settings = batch_body_at(batch_response, 4).get("data", []) if args.project_gid else []
+    sections = batch_body_at(batch_response, 3).get("data", []) if project_gid else []
+    project_custom_field_settings = batch_body_at(batch_response, 4).get("data", []) if project_gid else []
     section_order = section_order_from_sections(sections)
     comments = comment_stories_only(stories)
 
     memberships = []
     for membership in task.get("memberships", []):
         project = membership.get("project") or {}
-        if args.project_gid and project.get("gid") != args.project_gid:
+        if project_gid and project.get("gid") != project_gid:
             continue
         section = membership.get("section") or {}
         section_gid = section.get("gid")
@@ -3164,7 +3379,7 @@ def command_task_bundle(args: argparse.Namespace) -> Any:
     payload = {
         "task": task,
         "workflow_context": {
-            "project_gid": args.project_gid,
+            "project_gid": project_gid,
             "memberships": memberships,
             "section_order": [
                 {"gid": section.get("gid"), "name": section.get("name"), "section_position": section_order.get(section.get("gid"))}
@@ -3180,8 +3395,31 @@ def command_task_bundle(args: argparse.Namespace) -> Any:
         "image_urls": image_urls,
         "asana_permalink": task.get("permalink_url"),
     }
-    print_json(payload, args.compact)
     return payload
+
+
+def command_task_bundle(args: argparse.Namespace) -> Any:
+    token = get_token(args)
+    task_gids = parse_gid_args(getattr(args, "task_gids", None) or getattr(args, "task_gid", None))
+    return render_many_results(
+        "task-bundle",
+        [
+            {
+                "requested_gid": task_gid,
+                "status_code": 200,
+                "result": build_task_bundle_payload(
+                    token,
+                    task_gid=task_gid,
+                    project_gid=args.project_gid,
+                    task_opt_fields=args.task_opt_fields,
+                    story_opt_fields_value=args.story_opt_fields,
+                    attachment_opt_fields=args.attachment_opt_fields,
+                ),
+            }
+            for task_gid in task_gids
+        ],
+        args.compact,
+    )
 
 
 def command_add_task_project(args: argparse.Namespace) -> Any:
@@ -3225,14 +3463,29 @@ def command_remove_task_followers(args: argparse.Namespace) -> Any:
 
 def command_task_tags(args: argparse.Namespace) -> Any:
     token = get_token(args)
-    response = api_request(
-        token=token,
-        method="GET",
-        path_or_url=f"/tasks/{args.task_gid}/tags",
-        query={"opt_fields": args.opt_fields or tag_opt_fields("gid,name,color")},
+    task_gids = parse_gid_args(getattr(args, "task_gids", None) or getattr(args, "task_gid", None))
+    opt_fields = args.opt_fields or tag_opt_fields("gid,name,color")
+    actions = [
+        {
+            "method": "get",
+            "relative_path": f"/tasks/{task_gid}/tags",
+            "options": {"fields": field_list(opt_fields)},
+        }
+        for task_gid in task_gids
+    ]
+    items = batch_actions_request_chunked(token, actions)
+    return render_many_results(
+        "task-tags",
+        [
+            {
+                "requested_gid": task_gid,
+                "status_code": item.get("status_code", 200),
+                "result": item.get("body", {}),
+            }
+            for task_gid, item in zip(task_gids, items)
+        ],
+        args.compact,
     )
-    print_json(response, args.compact)
-    return response
 
 
 def command_tags(args: argparse.Namespace) -> Any:
@@ -3295,36 +3548,63 @@ def command_team_custom_fields(args: argparse.Namespace) -> Any:
 
 def command_project_custom_fields(args: argparse.Namespace) -> Any:
     token = get_token(args)
-    response = api_request(
-        token=token,
-        method="GET",
-        path_or_url=f"/projects/{args.project_gid}/custom_field_settings",
-        query={"opt_fields": args.opt_fields or custom_field_setting_opt_fields()},
+    project_gids = parse_gid_args(getattr(args, "project_gids", None) or getattr(args, "project_gid", None))
+    opt_fields = args.opt_fields or custom_field_setting_opt_fields()
+    actions = [
+        {
+            "method": "get",
+            "relative_path": f"/projects/{project_gid}/custom_field_settings",
+            "options": {"fields": field_list(opt_fields)},
+        }
+        for project_gid in project_gids
+    ]
+    items = batch_actions_request_chunked(token, actions)
+    return render_many_results(
+        "project-custom-fields",
+        [
+            {
+                "requested_gid": project_gid,
+                "status_code": item.get("status_code", 200),
+                "result": item.get("body", {}),
+            }
+            for project_gid, item in zip(project_gids, items)
+        ],
+        args.compact,
     )
-    print_json(response, args.compact)
-    return response
 
 
 def command_task_custom_fields(args: argparse.Namespace) -> Any:
     token = get_token(args)
-    response = api_request(
-        token=token,
-        method="GET",
-        path_or_url=f"/tasks/{args.task_gid}",
-        query={
-            "opt_fields": args.opt_fields
-            or "gid,name,custom_fields.gid,custom_fields.name,custom_fields.resource_subtype,"
-            "custom_fields.display_value,custom_fields.enum_value.name"
-        },
+    task_gids = parse_gid_args(getattr(args, "task_gids", None) or getattr(args, "task_gid", None))
+    opt_fields = (
+        args.opt_fields
+        or "gid,name,custom_fields.gid,custom_fields.name,custom_fields.resource_subtype,"
+        "custom_fields.display_value,custom_fields.enum_value.name"
     )
-    task = response.get("data", {})
-    payload = {
-        "task_gid": task.get("gid"),
-        "name": task.get("name"),
-        "custom_fields": task.get("custom_fields", []),
-    }
-    print_json(payload, args.compact)
-    return payload
+    actions = [
+        {
+            "method": "get",
+            "relative_path": f"/tasks/{task_gid}",
+            "options": {"fields": field_list(opt_fields)},
+        }
+        for task_gid in task_gids
+    ]
+    items = batch_actions_request_chunked(token, actions)
+    entries = []
+    for task_gid, item in zip(task_gids, items):
+        task = (item.get("body") or {}).get("data", {})
+        entries.append(
+            {
+                "requested_gid": task_gid,
+                "status_code": item.get("status_code", 200),
+                "result": {
+                    "task_gid": task.get("gid"),
+                    "name": task.get("name"),
+                    "custom_fields": task.get("custom_fields", []),
+                },
+            }
+        )
+    return render_many_results("task-custom-fields", entries, args.compact)
 
 
 def command_create_custom_field(args: argparse.Namespace) -> Any:
@@ -5296,23 +5576,23 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_output_flags(projects_parser)
     projects_parser.set_defaults(func=command_projects)
 
-    task_parser = subparsers.add_parser("task", help="Inspect a task")
-    task_parser.add_argument("task_gid")
+    task_parser = subparsers.add_parser("task", help="Inspect one or more tasks")
+    task_parser.add_argument("task_gids", nargs="+", help="Task gids; comma-separated values allowed")
     task_parser.add_argument("--opt-fields", help="Override task fields")
     add_common_output_flags(task_parser)
     task_parser.set_defaults(func=command_task)
 
-    story_parser = subparsers.add_parser("story", help="Inspect a story/comment by gid")
-    story_parser.add_argument("story_gid")
+    story_parser = subparsers.add_parser("story", help="Inspect one or more stories/comments by gid")
+    story_parser.add_argument("story_gids", nargs="+", help="Story gids; comma-separated values allowed")
     story_parser.add_argument("--opt-fields", help="Override story fields")
     add_common_output_flags(story_parser)
     story_parser.set_defaults(func=command_story)
 
     task_bundle_parser = subparsers.add_parser(
         "task-bundle",
-        help="Fetch task, comments, attachments, and project workflow context in a single batch call",
+        help="Fetch one or more tasks with comments, attachments, and optional project workflow context",
     )
-    task_bundle_parser.add_argument("task_gid")
+    task_bundle_parser.add_argument("task_gids", nargs="+", help="Task gids; comma-separated values allowed")
     task_bundle_parser.add_argument(
         "--project-gid",
         help="Project GID to include section order and project custom field settings",
@@ -5323,8 +5603,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_output_flags(task_bundle_parser)
     task_bundle_parser.set_defaults(func=command_task_bundle)
 
-    task_status_parser = subparsers.add_parser("task-status", help="Summarize completion and board-column status for a task")
-    task_status_parser.add_argument("task_gid")
+    task_status_parser = subparsers.add_parser("task-status", help="Summarize completion and board-column status for one or more tasks")
+    task_status_parser.add_argument("task_gids", nargs="+", help="Task gids; comma-separated values allowed")
     task_status_parser.add_argument("--project", help="Limit membership analysis to one project GID")
     task_status_parser.add_argument("--opt-fields", help="Override task fields")
     task_status_parser.add_argument(
@@ -5335,8 +5615,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_output_flags(task_status_parser)
     task_status_parser.set_defaults(func=command_task_status)
 
-    project_parser = subparsers.add_parser("project", help="Inspect a project")
-    project_parser.add_argument("project_gid")
+    project_parser = subparsers.add_parser("project", help="Inspect one or more projects")
+    project_parser.add_argument("project_gids", nargs="+", help="Project gids; comma-separated values allowed")
     project_parser.add_argument("--opt-fields", help="Override project fields")
     add_common_output_flags(project_parser)
     project_parser.set_defaults(func=command_project)
@@ -5400,8 +5680,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_output_flags(sections_parser)
     sections_parser.set_defaults(func=command_sections)
 
-    section_parser = subparsers.add_parser("section", help="Inspect a section")
-    section_parser.add_argument("section_gid")
+    section_parser = subparsers.add_parser("section", help="Inspect one or more sections")
+    section_parser.add_argument("section_gids", nargs="+", help="Section gids; comma-separated values allowed")
     section_parser.add_argument("--opt-fields", help="Override section fields")
     add_common_output_flags(section_parser)
     section_parser.set_defaults(func=command_section)
@@ -5643,24 +5923,24 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_output_flags(update_story_parser)
     update_story_parser.set_defaults(func=command_update_story)
 
-    task_stories_parser = subparsers.add_parser("task-stories", help="List stories/comments on a task")
-    task_stories_parser.add_argument("task_gid")
+    task_stories_parser = subparsers.add_parser("task-stories", help="List stories/comments on one or more tasks")
+    task_stories_parser.add_argument("task_gids", nargs="+", help="Task gids; comma-separated values allowed")
     task_stories_parser.add_argument("--opt-fields", help="Override story fields")
     task_stories_parser.add_argument("--paginate", action="store_true", help="Follow Asana next_page links")
     task_stories_parser.add_argument("--limit-pages", type=int, default=0, help="Stop pagination after N pages")
     add_common_output_flags(task_stories_parser)
     task_stories_parser.set_defaults(func=command_task_stories)
 
-    task_comments_parser = subparsers.add_parser("task-comments", help="List only comment stories, including text and html_text")
-    task_comments_parser.add_argument("task_gid")
+    task_comments_parser = subparsers.add_parser("task-comments", help="List only comment stories on one or more tasks, including text and html_text")
+    task_comments_parser.add_argument("task_gids", nargs="+", help="Task gids; comma-separated values allowed")
     task_comments_parser.add_argument("--opt-fields", help="Override story fields")
     task_comments_parser.add_argument("--paginate", action="store_true", help="Follow Asana next_page links")
     task_comments_parser.add_argument("--limit-pages", type=int, default=0, help="Stop pagination after N pages")
     add_common_output_flags(task_comments_parser)
     task_comments_parser.set_defaults(func=command_task_comments)
 
-    task_projects_parser = subparsers.add_parser("task-projects", help="List projects a task belongs to")
-    task_projects_parser.add_argument("task_gid")
+    task_projects_parser = subparsers.add_parser("task-projects", help="List projects one or more tasks belong to")
+    task_projects_parser.add_argument("task_gids", nargs="+", help="Task gids; comma-separated values allowed")
     task_projects_parser.add_argument("--opt-fields", help="Override project fields")
     add_common_output_flags(task_projects_parser)
     task_projects_parser.set_defaults(func=command_task_projects)
@@ -5724,14 +6004,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_output_flags(team_custom_fields_parser)
     team_custom_fields_parser.set_defaults(func=command_team_custom_fields)
 
-    project_custom_fields_parser = subparsers.add_parser("project-custom-fields", help="List custom field settings on a project")
-    project_custom_fields_parser.add_argument("project_gid")
+    project_custom_fields_parser = subparsers.add_parser("project-custom-fields", help="List custom field settings on one or more projects")
+    project_custom_fields_parser.add_argument("project_gids", nargs="+", help="Project gids; comma-separated values allowed")
     project_custom_fields_parser.add_argument("--opt-fields", help="Override field list")
     add_common_output_flags(project_custom_fields_parser)
     project_custom_fields_parser.set_defaults(func=command_project_custom_fields)
 
-    task_custom_fields_parser = subparsers.add_parser("task-custom-fields", help="List custom fields on a task")
-    task_custom_fields_parser.add_argument("task_gid")
+    task_custom_fields_parser = subparsers.add_parser("task-custom-fields", help="List custom fields on one or more tasks")
+    task_custom_fields_parser.add_argument("task_gids", nargs="+", help="Task gids; comma-separated values allowed")
     task_custom_fields_parser.add_argument("--opt-fields", help="Override field list")
     add_common_output_flags(task_custom_fields_parser)
     task_custom_fields_parser.set_defaults(func=command_task_custom_fields)
@@ -5750,8 +6030,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_output_flags(create_custom_field_parser)
     create_custom_field_parser.set_defaults(func=command_create_custom_field)
 
-    task_tags_parser = subparsers.add_parser("task-tags", help="List tags on a task")
-    task_tags_parser.add_argument("task_gid")
+    task_tags_parser = subparsers.add_parser("task-tags", help="List tags on one or more tasks")
+    task_tags_parser.add_argument("task_gids", nargs="+", help="Task gids; comma-separated values allowed")
     task_tags_parser.add_argument("--opt-fields", help="Override tag fields")
     add_common_output_flags(task_tags_parser)
     task_tags_parser.set_defaults(func=command_task_tags)
