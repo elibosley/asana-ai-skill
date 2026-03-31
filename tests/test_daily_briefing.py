@@ -36,25 +36,25 @@ class DailyBriefingPlanTests(unittest.TestCase):
         task_context = {
             "task": {
                 "gid": "task-1",
-                "name": "Verify PR #2593 on staging",
+                "name": "Verify PR #4242 in preview",
                 "permalink_url": "https://app.asana.com/1/2/3",
                 "assignee_section": {"name": "Recently assigned"},
                 "due_on": "2026-03-31",
                 "memberships": [
                     {
-                        "project": {"name": "Unraid OS 7.3"},
+                        "project": {"name": "Platform Release 7.3"},
                         "section": {"name": "Test"},
                     }
                 ],
-                "projects": [{"name": "Unraid OS 7.3"}],
+                "projects": [{"name": "Platform Release 7.3"}],
                 "followers": [{"gid": "user-1"}],
                 "collaborators": [],
-                "notes": "Validate the staging rollout before closing.",
+                "notes": "Validate the preview rollout before closing.",
             },
             "stories": [
                 {
                     "resource_subtype": "comment_added",
-                    "text": "Please test the latest build from PR #2593.",
+                    "text": "Please test the latest build from PR #4242.",
                     "created_at": "2026-03-30T10:00:00Z",
                 }
             ],
@@ -74,7 +74,7 @@ class DailyBriefingPlanTests(unittest.TestCase):
 
             self.assertEqual(payload["workflow"], ASANA_API.DAILY_BRIEFING_SNAPSHOT_WORKFLOW)
             self.assertIn("plan_template", payload)
-            self.assertEqual(payload["tasks"][0]["primary_pr"], "PR #2593")
+            self.assertEqual(payload["tasks"][0]["primary_pr"], "PR #4242")
             self.assertTrue(Path(payload["snapshot_file"]).exists())
             self.assertTrue(Path(payload["plan_template_file"]).exists())
             template = json.loads(Path(payload["plan_template_file"]).read_text())
@@ -98,7 +98,7 @@ class DailyBriefingPlanTests(unittest.TestCase):
                     "bucket_slug": "execute-now",
                     "confidence": "high",
                     "why": "The task has a concrete next step and active rollout context.",
-                    "next_action": "Run the staging verification pass now.",
+                    "next_action": "Run the preview verification pass now.",
                     "question": "",
                 },
                 {
@@ -138,23 +138,23 @@ class DailyBriefingPlanTests(unittest.TestCase):
             "task-1": {
                 "task": {
                     "gid": "task-1",
-                    "name": "Verify PR #2593 on staging",
+                    "name": "Verify PR #4242 in preview",
                     "permalink_url": "https://app.asana.com/1/2/3",
                     "assignee_section": {"name": "Recently assigned"},
                     "due_on": "2026-03-31",
-                    "memberships": [{"project": {"name": "Unraid OS 7.3"}, "section": {"name": "Test"}}],
-                    "projects": [{"name": "Unraid OS 7.3"}],
+                    "memberships": [{"project": {"name": "Platform Release 7.3"}, "section": {"name": "Test"}}],
+                    "projects": [{"name": "Platform Release 7.3"}],
                 },
                 "stories": [],
             },
             "task-2": {
                 "task": {
                     "gid": "task-2",
-                    "name": "Decide CRA customer communication",
+                    "name": "Decide policy rollout communication",
                     "permalink_url": "https://app.asana.com/1/2/4",
                     "assignee_section": {"name": "Review: Needs Next Action"},
-                    "memberships": [{"project": {"name": "CRA"}, "section": {"name": "Decision"}}],
-                    "projects": [{"name": "CRA"}],
+                    "memberships": [{"project": {"name": "Policy Readiness"}, "section": {"name": "Decision"}}],
+                    "projects": [{"name": "Policy Readiness"}],
                 },
                 "stories": [],
             },
@@ -185,7 +185,7 @@ class DailyBriefingPlanTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["ask_user_count"], 1)
         self.assertIn("execute-now", payload["buckets"])
         self.assertEqual(payload["user_questions"][0]["task_gid"], "task-2")
-        self.assertIn("[Verify PR #2593 on staging](https://app.asana.com/1/2/3)", payload["rendered_markdown"])
+        self.assertIn("[Verify PR #4242 in preview](https://app.asana.com/1/2/3)", payload["rendered_markdown"])
         self.assertIn("**Needs Your Input**", payload["rendered_markdown"])
 
 

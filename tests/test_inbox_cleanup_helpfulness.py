@@ -32,8 +32,8 @@ def sample_task(
         "projects": [membership["project"] for membership in (memberships or []) if isinstance(membership, dict) and membership.get("project")],
         "memberships": memberships or [],
         "assignee_section": {"name": "Recently assigned"},
-        "assignee": {"gid": "user-1", "name": "Eli"},
-        "followers": followers if followers is not None else [{"gid": "user-1", "name": "Eli"}],
+        "assignee": {"gid": "user-1", "name": "Alex"},
+        "followers": followers if followers is not None else [{"gid": "user-1", "name": "Alex"}],
         "collaborators": [],
         "parent": None,
         "permalink_url": "https://app.asana.com/1/2/3",
@@ -42,16 +42,16 @@ def sample_task(
 
 class InboxCleanupHelpfulnessTests(unittest.TestCase):
     def test_extract_github_pr_links_detects_inline_pr_reference(self) -> None:
-        links = ASANA_API.extract_github_pr_links("Expose IPv6 myunraid cert routes [PR #2593]")
+        links = ASANA_API.extract_github_pr_links("Enable IPv6 edge gateway certificate routes [PR #4242]")
 
-        self.assertEqual([{"url": "", "owner": "", "repo": "", "pr_number": "2593"}], links)
+        self.assertEqual([{"url": "", "owner": "", "repo": "", "pr_number": "4242"}], links)
 
     def test_verification_task_gets_specific_task_read_and_question(self) -> None:
         task = sample_task(
-            name="Expose IPv6 myunraid cert routes [PR #2593]",
+            name="Enable IPv6 edge gateway certificate routes [PR #4242]",
             memberships=[
                 {
-                    "project": {"gid": "project-1", "name": "Unraid OS 7.3"},
+                    "project": {"gid": "project-1", "name": "Platform Release 7.3"},
                     "section": {"gid": "section-1", "name": "Test"},
                 }
             ],
@@ -65,23 +65,23 @@ class InboxCleanupHelpfulnessTests(unittest.TestCase):
 
         self.assertEqual(classification["category_key"], "needs_verification")
         self.assertEqual(classification["active_ai_action"]["action"], "ask_to_verify")
-        self.assertIn("PR #2593", classification["manager_plan"]["task_read"])
+        self.assertIn("PR #4242", classification["manager_plan"]["task_read"])
         self.assertIn("verification", classification["manager_plan"]["task_read"].casefold())
         self.assertIn("verification pass", classification["manager_plan"]["ask_user"].casefold())
 
     def test_shared_decision_task_still_surfaces_execute_now(self) -> None:
         task = sample_task(
-            name="Clarify CRA reporting vs retained documentation",
+            name="Clarify policy reporting vs retained documentation",
             notes="Need to define the reporting boundary and recommendation before implementation proceeds.",
             memberships=[
                 {
-                    "project": {"gid": "project-1", "name": "Cyber Resilience Act (CRA) Readiness"},
+                    "project": {"gid": "project-1", "name": "Policy Readiness"},
                     "section": {"gid": "section-1", "name": "Priority 1 - Decide Now"},
                 }
             ],
             followers=[
-                {"gid": "user-1", "name": "Eli"},
-                {"gid": "user-2", "name": "Spencer"},
+                {"gid": "user-1", "name": "Alex"},
+                {"gid": "user-2", "name": "Morgan"},
             ],
         )
         task_context = {"task": task, "stories": []}
