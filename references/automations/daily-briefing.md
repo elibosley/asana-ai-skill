@@ -2,24 +2,50 @@
 
 ## Purpose
 
-Render a standardized, easy-to-scan morning command center for open My Tasks.
+Run `daily-briefing` as an AI-gated, read-only morning planning workflow.
 
-This is the long-form source of truth for `daily-briefing`.
-Use it when the agent should execute, edit, review, or schedule this workflow for Codex or Claude.
+The command should not use built-in heuristics to decide what is actionable. Python should fetch the current My Tasks context and render an AI-authored plan. The AI should:
+
+- scan the user's open tasks
+- decide which tasks are actually worth attention today
+- group them into the right morning buckets
+- explain why each highlighted task matters
+- leave ambiguous items as explicit user questions
+
+## Core Principle
+
+`daily-briefing` is now a two-phase read-only workflow:
+
+1. Snapshot: fetch open My Tasks context and emit a planning JSON.
+2. Plan: let the AI choose the meaningful buckets and highlighted tasks.
+3. Render: turn that reviewed plan into JSON or markdown.
+
+The actionability decision belongs to the AI plan, not to Python heuristics.
 
 ## Use When
 
 - The user asks, `what should I focus on this morning?`
 - The user wants a command center instead of a filing pass.
-- The user wants a read-only daily overview of open My Tasks.
-- The workflow should standardize the same output shape across Codex and Claude.
+- The user wants AI to decide what is actionable rather than relying on fixed rules.
+- The workflow should stay read-only while still being opinionated.
 
-## Works With
+## Commands
 
-- `python3 scripts/asana_api.py daily-briefing`
-- `python3 scripts/asana_api.py daily-briefing --markdown`
-- `python3 scripts/asana_api.py show-context`
-- `python3 scripts/asana_api.py show-cache`
+Generate the daily briefing snapshot and plan scaffold:
+
+```bash
+python3 scripts/asana_api.py daily-briefing
+python3 scripts/asana_api.py daily-briefing --snapshot-file /tmp/asana-daily-briefing-snapshot.json
+python3 scripts/asana_api.py daily-briefing --snapshot-file /tmp/asana-daily-briefing-snapshot.json --plan-template-file /tmp/asana-daily-briefing-plan.json
+python3 scripts/asana_api.py daily-briefing --max-tasks 50
+```
+
+Render an AI-authored plan:
+
+```bash
+python3 scripts/asana_api.py daily-briefing --plan-file /tmp/asana-daily-briefing-plan.json
+python3 scripts/asana_api.py daily-briefing --plan-file /tmp/asana-daily-briefing-plan.json --markdown
+```
 
 ## Inputs
 
@@ -29,30 +55,66 @@ Required placeholders:
 
 Optional placeholders:
 
-- `MAX_TASKS`, default helper behavior unless the user wants a cap
-- `OUTPUT_MODE`, prefer `--markdown` for human-readable summaries
-- `FOCUS_BIAS`, optional note from the user such as "ship-focused", "verification-heavy", or "broad morning overview"
+- `MAX_TASKS`
+- `SNAPSHOT_FILE`
+- `PLAN_TEMPLATE_FILE`
+- `PLAN_FILE`
 
-## Output Contract
+## Snapshot Contract
 
-The workflow is read-only.
-It should not move tasks, edit tasks, or create comments.
+`daily-briefing` without `--plan-file` emits a snapshot payload with:
 
-Preferred output mode:
+- `workflow: "asana_daily_briefing_snapshot"`
+- `version`
+- `generated_at`
+- `my_tasks`
+- `open_task_count`
+- `tasks_considered`
+- `current_section_counts`
+- `starter_buckets`
+- `tasks`
+- `instructions`
+- `plan_template`
 
-- markdown
+Each task includes raw context for the AI to reason over:
 
-Required output characteristics:
+- `task_gid`
+- `name`
+- `url`
+- `current_section`
+- `due_date`
+- `completed`
+- `project_memberships`
+- `project_names`
+- `linked_prs`
+- `primary_pr`
+- `notes_excerpt`
+- `recent_comment_excerpts`
+- `follower_count`
+- `collaborator_count`
+- `raw_signals`
 
-- one concise morning overview
-- direct task links for every surfaced task
-- explicit bucket headings in a stable order
-- enough context to explain why a task is in that bucket
-- suppression of low-signal admin noise into the background bucket
+This snapshot should help the AI decide what deserves attention today without pre-bucketing the tasks.
 
-## Standard Bucket Order
+## Plan Contract
 
-Always prefer this bucket order unless the user asks for a different layout:
+The AI should author a JSON object with:
+
+- `workflow: "asana_daily_briefing_plan"`
+- `version`
+- `generated_at`
+- `my_tasks_gid`
+- `source`
+- `overview`
+- `focus`
+- `categories`
+- `tasks`
+
+### Categories
+
+`categories` define the visible sections of the morning briefing.
+
+Default seeds are:
 
 1. `Execute Now`
 2. `Release / Ship Watch`
@@ -61,199 +123,188 @@ Always prefer this bucket order unless the user asks for a different layout:
 5. `Likely Ready To Close`
 6. `Background / Not Today`
 
-The exact bucket names should stay stable across Codex and Claude outputs unless the user explicitly asks for different naming.
+The AI can keep these stable or introduce a better fit if the inbox shape clearly demands it.
 
-## Section Semantics
+Each category should include:
 
-### Execute Now
+- `slug`
+- `name`
+- `description`
+- `display_order`
 
-Tasks where the user is the clear driver and the next step is implementation or direct execution today.
+### Tasks
 
-Typical signals:
+Each task entry should include:
 
-- open task
-- recent activity
-- no done-like workflow state
-- actionable next step is clear
+- `task_gid`
+- `name`
+- `decision`
+- `bucket_slug`
+- `confidence`
+- `why`
+- `next_action`
+- `question`
+- `notes`
 
-### Release / Ship Watch
+Allowed `decision` values:
 
-Tasks that already have implementation progress and now mostly require release awareness, coordination, or monitoring.
+- `highlight`
+- `ask_user`
+- `omit`
 
-Typical signals:
+Recommended `confidence` values:
 
-- task has PR, branch, ship, release, staging, or deployment context
-- project column already suggests `Done`, `Test`, `Staging`, `QA`, `Production`, or similar
+- `high`
+- `medium`
+- `low`
 
-### Needs Verification
+## Planning Rules
 
-Tasks where the likely next step is testing, checking results, confirming behavior, or verifying a rollout.
+### 1. Decide what is actionable, not just what exists
 
-Typical signals:
+The AI should highlight only the tasks that deserve space in a morning command center.
 
-- waiting on QA
-- user needs to inspect output
-- task moved into a verification-like column
+Do not dump the full open-task list into the output.
 
-### Needs Follow-Up
+### 2. Keep it read-only but opinionated
 
-Tasks where the user needs to ask a question, unblock someone, answer a request, or coordinate with another person.
+The output should still answer:
 
-Typical signals:
+- what matters today
+- why it matters
+- what the likely next move is
 
-- waiting on another person
-- recent request for response
-- stale-but-not-dead task where follow-up is the right next move
+But the workflow must not mutate tasks, move sections, or post comments.
 
-### Likely Ready To Close
+### 3. Use `ask_user` for ambiguity
 
-Tasks that appear effectively done or superseded and probably need confirmation plus closure.
+If a task might matter today but the missing assumption is important, do not force it into a bucket.
 
-Typical signals:
+Use:
 
-- evidence of completion
-- no remaining visible work
-- task still open for workflow reasons only
+- `decision: "ask_user"`
+- one concrete `question`
 
-### Background / Not Today
+### 4. Omit low-signal noise
 
-Tasks that should stay visible in the morning overview but should not drive today's work.
+If a task is clearly not part of today's command center, use:
 
-Typical signals:
+- `decision: "omit"`
 
-- admin
-- reminders
-- long-horizon planning
-- low-signal backlog
-- training or housekeeping
+### 5. Prefer reasons tied to today's work
 
-## Deterministic Rules
+Good `why` examples:
 
-Use workflow state and helper context first.
+- “This has a concrete staging validation step and should be cleared before new implementation.”
+- “This blocks another thread and needs one follow-up before it can move.”
+- “This looks effectively done and only needs a final close-out pass.”
 
-Important rules:
+Bad `why` examples:
 
-- If a task has code or PR context but its project column already says `Done`, `Test`, `Staging`, `QA`, `Production`, or similar, do not place it in `Execute Now`.
-- Move done-like work into `Release / Ship Watch` or `Needs Verification` instead.
-- Keep the command center broad, but push low-signal admin and reminder tasks into `Background / Not Today`.
-- Do not infer that a task is complete from section names alone; use `completed` plus surrounding context.
+- “This is a task.”
+- “It seems important.”
 
-## Standard Output Shape
+## Output Contract
 
-Recommended markdown structure:
+Rendering the plan should produce:
 
-```text
-# Morning Briefing
+- a short morning overview
+- a short focus line
+- bucketed highlighted tasks with direct links
+- a `Needs Your Input` section when the AI marked tasks as `ask_user`
 
-One short paragraph on the overall shape of the day.
+Markdown is the preferred human-facing mode.
 
-## Execute Now
-- [Task name](TASK_URL) — one-line reason
+## Example Plan
 
-## Release / Ship Watch
-- [Task name](TASK_URL) — one-line reason
-
-## Needs Verification
-- [Task name](TASK_URL) — one-line reason
-
-## Needs Follow-Up
-- [Task name](TASK_URL) — one-line reason
-
-## Likely Ready To Close
-- [Task name](TASK_URL) — one-line reason
-
-## Background / Not Today
-- [Task name](TASK_URL) — one-line reason
+```json
+{
+  "workflow": "asana_daily_briefing_plan",
+  "version": 1,
+  "generated_at": "2026-03-31T14:00:00Z",
+  "my_tasks_gid": "123",
+  "source": {
+    "workflow": "asana_daily_briefing_snapshot",
+    "generated_at": "2026-03-31T13:55:00Z"
+  },
+  "overview": "Three tasks deserve attention this morning.",
+  "focus": "Finish verification and unblock follow-ups before pulling in fresh implementation work.",
+  "categories": [
+    {
+      "slug": "execute-now",
+      "name": "Execute Now",
+      "description": "Tasks worth active work immediately.",
+      "display_order": 1
+    },
+    {
+      "slug": "needs-follow-up",
+      "name": "Needs Follow-Up",
+      "description": "Tasks that need one concrete response or unblock.",
+      "display_order": 2
+    }
+  ],
+  "tasks": [
+    {
+      "task_gid": "456",
+      "name": "Verify PR #2593 on staging",
+      "decision": "highlight",
+      "bucket_slug": "execute-now",
+      "confidence": "high",
+      "why": "This has a concrete verification step and should be cleared before new implementation starts.",
+      "next_action": "Run the staging verification pass now.",
+      "question": "",
+      "notes": ""
+    },
+    {
+      "task_gid": "789",
+      "name": "Decide CRA customer communication",
+      "decision": "ask_user",
+      "bucket_slug": "",
+      "confidence": "low",
+      "why": "It may be important today, but the urgency versus delegation choice is unclear.",
+      "next_action": "",
+      "question": "Do you want this treated as a top-of-day decision or as a draft-for-review item?",
+      "notes": ""
+    }
+  ]
+}
 ```
-
-Each task line should include:
-
-- direct task link
-- brief explanation
-- only the most relevant context
-
-Do not turn the output into a raw dump of all open tasks.
 
 ## Prompt Template
 
 ```text
 Use the installed Asana skill.
 
-Run the daily-briefing workflow for the current user and prefer markdown output.
+Run `python3 scripts/asana_api.py daily-briefing --snapshot-file /tmp/asana-daily-briefing-snapshot.json --plan-template-file /tmp/asana-daily-briefing-plan.json`.
 
-Return a read-only morning command center for open My Tasks.
+Read the snapshot JSON and decide which tasks actually belong in today's morning command center.
 
-Use these bucket names and keep them in this order:
-1. Execute Now
-2. Release / Ship Watch
-3. Needs Verification
-4. Needs Follow-Up
-5. Likely Ready To Close
-6. Background / Not Today
+Write an AI-authored plan JSON to `/tmp/asana-daily-briefing-plan.json`:
+- highlight only the tasks worth attention today
+- keep the buckets useful and easy to scan
+- leave ambiguous tasks as `ask_user`
+- omit low-signal tasks from the visible briefing
 
-For every surfaced task, include a direct task link and a short reason.
-
-Keep the output broad but opinionated:
-- show important non-code queues too
-- suppress admin, reminder, and low-signal tasks into Background / Not Today
-- if a task has PR or code context but its project state already says Done, Test, Staging, QA, or Production, do not put it in Execute Now
+Then render the reviewed plan with:
+`python3 scripts/asana_api.py daily-briefing --plan-file /tmp/asana-daily-briefing-plan.json --markdown`
 
 Do not mutate tasks, move sections, or add comments.
-
-Format the final output in markdown so it is easy to scan in both Codex and Claude.
 ```
 
 ## Invocation Short Forms
 
-These are good short user instructions that should reliably map to this spec:
-
-- `Use the Asana skill and run the full spec in references/automations/daily-briefing.md.`
-- `Run the daily briefing spec for me in markdown.`
-- `Use the daily briefing workflow spec and give me the full morning command center.`
+- `Use the Asana skill and run the AI-gated daily briefing spec.`
+- `Generate the daily briefing snapshot, decide what is actionable, and render the plan in markdown.`
+- `Do not use built-in task heuristics; let AI decide today's actionable list.`
+- `Run daily-briefing as a read-only AI morning command center.`
 
 ## Scheduling Guidance
 
-Good default schedule:
-
-- weekday mornings
-- user's local timezone
-- one run early enough to shape the workday
-
 Good recurring uses:
 
-- every workday morning
-- Monday-through-Friday at a fixed time
+- weekday mornings
+- one run early enough to shape the workday
 
-## Standardization Notes For Codex And Claude
+Best practice:
 
-To keep outputs comparable across tools:
-
-- prefer markdown
-- keep bucket names stable
-- keep bucket order stable
-- keep each task explanation to one line when possible
-- avoid nested bullet hierarchies
-- keep the opening overview short
-
-If the user asks for a different format, follow that request explicitly.
-
-## Caveats
-
-- My Tasks can be large and noisy; the briefing should summarize, not dump.
-- Workflow columns are strong signals but not absolute truth.
-- Some tasks may fit multiple buckets; choose the one that best reflects the next action.
-- The best daily briefing is opinionated but still conservative about hidden assumptions.
-
-## Validation Checklist
-
-- Confirm the workflow is read-only.
-- Confirm the output uses the standard bucket order.
-- Confirm each surfaced task includes a direct link.
-- Confirm done-like workflow states do not end up in `Execute Now`.
-- Confirm low-signal tasks are suppressed into `Background / Not Today`.
-- Confirm the output is concise enough to scan quickly in the morning.
-
-## Relationship To Cookbook
-
-This file is the full spec.
-The shorter discovery entry lives in `references/recipes.md`.
+- schedule snapshot generation or full AI rendering, but keep it read-only

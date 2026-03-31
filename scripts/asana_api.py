@@ -92,6 +92,47 @@ INBOX_CLEANUP_CATEGORY_SEEDS = [
     },
 ]
 DEFAULT_INBOX_CLEANUP_SOURCE_SECTIONS = ("Recently assigned",)
+DAILY_BRIEFING_SNAPSHOT_WORKFLOW = "asana_daily_briefing_snapshot"
+DAILY_BRIEFING_PLAN_WORKFLOW = "asana_daily_briefing_plan"
+DAILY_BRIEFING_PLAN_VERSION = 1
+DAILY_BRIEFING_BUCKET_SEEDS = [
+    {
+        "slug": "execute-now",
+        "name": "Execute Now",
+        "description": "Tasks the AI believes are the best candidates for active work today.",
+        "display_order": 1,
+    },
+    {
+        "slug": "release-watch",
+        "name": "Release / Ship Watch",
+        "description": "Tasks that need rollout watching, shipping awareness, or post-implementation monitoring.",
+        "display_order": 2,
+    },
+    {
+        "slug": "needs-verification",
+        "name": "Needs Verification",
+        "description": "Tasks where the next move is checking, QA, or validating output.",
+        "display_order": 3,
+    },
+    {
+        "slug": "needs-follow-up",
+        "name": "Needs Follow-Up",
+        "description": "Tasks that need a response, unblock, or external coordination step.",
+        "display_order": 4,
+    },
+    {
+        "slug": "ready-to-close",
+        "name": "Likely Ready To Close",
+        "description": "Tasks that appear effectively done and need final confirmation or close-out.",
+        "display_order": 5,
+    },
+    {
+        "slug": "background",
+        "name": "Background / Not Today",
+        "description": "Tasks that should stay visible but should not drive today's work.",
+        "display_order": 6,
+    },
+]
 DAILY_BRIEFING_DONE_LIKE_PATTERN = re.compile(
     r"\b(done|test|testing|staging|qa|production|complete|completed|released|shipped)\b",
     re.IGNORECASE,
@@ -1853,7 +1894,7 @@ def advertising_message_for_my_tasks(summary: dict[str, Any]) -> dict[str, Any]:
         recommendation = {
             "priority": "low",
             "message": f"My Tasks already has {review_count} tasks in Review sections. Start with a morning command center before doing another cleanup pass.",
-            "command": "python3 scripts/asana_api.py daily-briefing --markdown",
+            "command": "python3 scripts/asana_api.py daily-briefing",
         }
     return recommendation
 
@@ -1869,8 +1910,12 @@ def skill_feature_highlights() -> list[dict[str, str]]:
             "use_when": "Apply an AI-authored cleanup plan after categories and bucket decisions have been reviewed.",
         },
         {
-            "command": "python3 scripts/asana_api.py daily-briefing --markdown",
-            "use_when": "Generate a full morning command center with task links, release-watch detection, and prioritized action buckets.",
+            "command": "python3 scripts/asana_api.py daily-briefing",
+            "use_when": "Generate an AI-gated daily briefing snapshot and plan scaffold before deciding which tasks are actionable today.",
+        },
+        {
+            "command": "python3 scripts/asana_api.py daily-briefing --plan-file /tmp/asana-daily-briefing-plan.json --markdown",
+            "use_when": "Render an AI-authored morning command center after the briefing plan has been reviewed.",
         },
         {
             "command": "python3 scripts/asana_api.py task-bundle <task_gid> --project-gid <project_gid>",
@@ -4669,73 +4714,256 @@ def daily_briefing_action_summary(bucket_name: str, item: dict[str, Any]) -> str
     return "Keep this visible, but it should not drive the day by default."
 
 
+def daily_briefing_bucket_seeds() -> list[dict[str, Any]]:
+    return [dict(seed) for seed in DAILY_BRIEFING_BUCKET_SEEDS]
+
+
+def daily_briefing_snapshot_task(task_context: dict[str, Any]) -> dict[str, Any]:
+    task = (task_context.get("task") or {}) if isinstance(task_context, dict) else {}
+    stories = (task_context.get("stories") or []) if isinstance(task_context, dict) else []
+    notes = strip_html_to_text(task.get("html_notes") or task.get("notes"))
+    recent_comment_excerpts = [
+        shorten_text(story_text(story), limit=180)
+        for story in recent_comments({"stories": stories}, limit=3)
+        if shorten_text(story_text(story), limit=180)
+    ]
+    combined_text = " ".join(
+        part
+        for part in [str(task.get("name") or ""), notes, *recent_comment_excerpts]
+        if part
+    )
+    linked_prs = extract_github_pr_links(combined_text)
+    follower_count = len([item for item in (task.get("followers") or []) if isinstance(item, dict)])
+    collaborator_count = len([item for item in (task.get("collaborators") or []) if isinstance(item, dict)])
+    return {
+        "task_gid": task.get("gid"),
+        "name": task.get("name"),
+        "url": task.get("permalink_url"),
+        "current_section": str(((task.get("assignee_section") or {}).get("name")) or "").strip(),
+        "due_date": short_date(task.get("due_on") or task.get("due_at")),
+        "completed": bool(task.get("completed")),
+        "project_memberships": task_membership_labels(task),
+        "project_names": task_project_names(task),
+        "linked_prs": linked_prs,
+        "primary_pr": primary_pr_label(linked_prs),
+        "notes_excerpt": shorten_text(notes, limit=280),
+        "recent_comment_excerpts": recent_comment_excerpts,
+        "follower_count": follower_count,
+        "collaborator_count": collaborator_count,
+        "assignee": ((task.get("assignee") or {}).get("name")),
+        "raw_signals": {
+            "has_due_date": bool(task.get("due_on") or task.get("due_at")),
+            "has_pr": bool(linked_prs),
+            "in_recently_assigned": str(((task.get("assignee_section") or {}).get("name")) or "").strip() == "Recently assigned",
+            "has_notes": bool(notes),
+            "has_recent_comments": bool(recent_comment_excerpts),
+        },
+    }
+
+
+def build_daily_briefing_plan_template(snapshot_payload: dict[str, Any]) -> dict[str, Any]:
+    task_templates = []
+    for task in snapshot_payload.get("tasks", []) or []:
+        if not isinstance(task, dict):
+            continue
+        task_templates.append(
+            {
+                "task_gid": task.get("task_gid"),
+                "name": task.get("name"),
+                "decision": "omit",
+                "bucket_slug": "",
+                "confidence": "low",
+                "why": "",
+                "next_action": "",
+                "question": "",
+                "notes": "",
+            }
+        )
+    return {
+        "workflow": DAILY_BRIEFING_PLAN_WORKFLOW,
+        "version": DAILY_BRIEFING_PLAN_VERSION,
+        "generated_at": now_iso(),
+        "my_tasks_gid": ((snapshot_payload.get("my_tasks") or {}).get("gid")),
+        "source": {
+            "workflow": DAILY_BRIEFING_SNAPSHOT_WORKFLOW,
+            "generated_at": snapshot_payload.get("generated_at"),
+        },
+        "overview": "",
+        "focus": "",
+        "categories": daily_briefing_bucket_seeds(),
+        "tasks": task_templates,
+    }
+
+
+def build_daily_briefing_snapshot_payload(args: argparse.Namespace) -> dict[str, Any]:
+    token = get_token(args)
+    context = load_context()
+    cache = load_cache()
+    workspace = workspace_default(args, context, cache)
+    if not workspace:
+        raise SystemExit("No workspace GID provided and no default workspace in asana-context.json")
+
+    user_task_list = my_tasks_project(token, workspace)
+    user_task_list_gid = str(user_task_list.get("gid") or "").strip()
+    if not user_task_list_gid:
+        raise SystemExit("Unable to resolve My Tasks for the selected workspace")
+
+    all_tasks = my_tasks_tasks(
+        token,
+        user_task_list_gid,
+        paginate=not args.no_paginate,
+        limit_pages=args.limit_pages,
+    )
+    filtered_tasks = [task for task in all_tasks if isinstance(task, dict)]
+    if args.max_tasks > 0:
+        filtered_tasks = filtered_tasks[: args.max_tasks]
+
+    task_contexts = fetch_task_review_context(
+        token,
+        [str(task.get("gid")) for task in filtered_tasks if task.get("gid")],
+    )
+    snapshot_tasks = []
+    for task in filtered_tasks:
+        task_gid = str(task.get("gid") or "").strip()
+        if not task_gid:
+            continue
+        snapshot_tasks.append(daily_briefing_snapshot_task(task_contexts.get(task_gid) or {"task": task, "stories": []}))
+
+    payload = {
+        "workflow": DAILY_BRIEFING_SNAPSHOT_WORKFLOW,
+        "version": DAILY_BRIEFING_PLAN_VERSION,
+        "generated_at": now_iso(),
+        "workspace_gid": workspace,
+        "my_tasks": {
+            "gid": user_task_list_gid,
+            "name": user_task_list.get("name"),
+        },
+        "open_task_count": len(all_tasks),
+        "tasks_considered": len(snapshot_tasks),
+        "current_section_counts": my_tasks_summary(
+            token,
+            workspace_gid=workspace,
+            cache=cache,
+            refresh=True,
+        ).get("section_counts", {}),
+        "starter_buckets": daily_briefing_bucket_seeds(),
+        "tasks": snapshot_tasks,
+        "instructions": {
+            "summary": "Use this snapshot to decide which tasks are actually actionable today. The AI should choose the briefing buckets and only highlight the tasks that deserve attention now.",
+            "required_task_fields": [
+                "decision",
+                "bucket_slug",
+                "confidence",
+                "why",
+                "next_action",
+                "question",
+            ],
+            "decision_values": [
+                "highlight",
+                "ask_user",
+                "omit",
+            ],
+        },
+    }
+    payload["plan_template"] = build_daily_briefing_plan_template(payload)
+    snapshot_path = write_json_file(getattr(args, "snapshot_file", None), payload)
+    plan_template_path = write_json_file(getattr(args, "plan_template_file", None), payload["plan_template"])
+    if snapshot_path:
+        payload["snapshot_file"] = snapshot_path
+    if plan_template_path:
+        payload["plan_template_file"] = plan_template_path
+    return payload
+
+
+def resolve_daily_briefing_plan_categories(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    categories_by_slug: dict[str, dict[str, Any]] = {}
+    for seed in daily_briefing_bucket_seeds():
+        slug = slugify_category(seed.get("slug") or seed.get("name"))
+        entry = dict(seed)
+        entry["slug"] = slug
+        categories_by_slug[slug] = entry
+    for index, category in enumerate(plan.get("categories", []) or [], start=1):
+        if not isinstance(category, dict):
+            continue
+        slug = slugify_category(category.get("slug") or category.get("name"))
+        merged = dict(categories_by_slug.get(slug) or {})
+        merged.update(category)
+        merged["slug"] = slug
+        if "display_order" not in merged:
+            merged["display_order"] = len(categories_by_slug) + index
+        categories_by_slug[slug] = merged
+    return sorted(
+        categories_by_slug.values(),
+        key=lambda item: (
+            int(item.get("display_order") or 999),
+            str(item.get("name") or item.get("slug") or "").casefold(),
+        ),
+    )
+
+
 def render_daily_briefing_markdown(payload: dict[str, Any]) -> str:
     summary = payload.get("summary", {}) or {}
-    bucket_titles = {
-        "execute_now": "Execute Now",
-        "release_watch": "Release / Ship Watch",
-        "needs_verification": "Needs Verification",
-        "needs_follow_up": "Needs Follow-Up",
-        "ready_to_close": "Likely Ready To Close",
-        "background": "Background / Not Today",
-    }
-    bucket_limits = {
-        "execute_now": 6,
-        "release_watch": 6,
-        "needs_verification": 6,
-        "needs_follow_up": 6,
-        "ready_to_close": 6,
-        "background": 8,
-    }
-    lines = [
-        f"**Morning Command Center — {payload.get('briefing_date', '')}**",
-        (
-            f"- Today at a glance: {summary.get('open_task_count', 0)} open tasks, "
-            f"{summary.get('execute_now_count', 0)} execute-now, "
-            f"{summary.get('release_watch_count', 0)} release/watch, "
-            f"{summary.get('needs_verification_count', 0)} needs verification, "
-            f"{summary.get('needs_follow_up_count', 0)} needs follow-up, "
-            f"{summary.get('ready_to_close_count', 0)} likely ready to close."
-        ),
-        "- Focus today: unblock and release-track existing work before starting new implementation.",
-    ]
+    categories = payload.get("categories") or daily_briefing_bucket_seeds()
+    buckets = payload.get("buckets", {}) or {}
+    lines = [f"**Morning Command Center — {payload.get('briefing_date', '')}**"]
+    overview = normalize_whitespace(payload.get("overview"))
+    if overview:
+        lines.append(f"- {overview}")
+    else:
+        lines.append(
+            f"- Today at a glance: {summary.get('open_task_count', 0)} open tasks, {summary.get('highlighted_count', 0)} highlighted by the AI plan."
+        )
+    focus = normalize_whitespace(payload.get("focus"))
+    if focus:
+        lines.append(f"- Focus today: {focus}")
 
-    for bucket_name in (
-        "execute_now",
-        "release_watch",
-        "needs_verification",
-        "needs_follow_up",
-        "ready_to_close",
-        "background",
-    ):
-        entries = payload.get("buckets", {}).get(bucket_name, []) or []
-        limit = bucket_limits[bucket_name]
+    for category in categories:
+        if not isinstance(category, dict):
+            continue
+        slug = slugify_category(category.get("slug") or category.get("name"))
+        title = str(category.get("name") or slug.replace("-", " ").title())
+        entries = buckets.get(slug, []) or []
         lines.append("")
-        lines.append(f"**{bucket_titles[bucket_name]}**")
+        lines.append(f"**{title}**")
         if not entries:
             lines.append("- None today.")
             continue
-        for entry in entries[:limit]:
+        for entry in entries:
             lines.append(f"- [{entry.get('name')}]({entry.get('url')})")
             detail_bits: list[str] = []
-            if entry.get("pr"):
-                detail_bits.append(str(entry["pr"]))
-            if entry.get("project_state"):
-                detail_bits.append(str(entry["project_state"]))
+            if entry.get("primary_pr"):
+                detail_bits.append(str(entry["primary_pr"]))
+            memberships = entry.get("project_memberships") or []
+            if memberships:
+                detail_bits.append(str(memberships[0]))
             if entry.get("due_date"):
                 detail_bits.append(f"due {entry['due_date']}")
             if entry.get("current_section"):
                 detail_bits.append(f"My Tasks: {entry['current_section']}")
-            detail_bits.append(daily_briefing_action_summary(bucket_name, entry))
+            if entry.get("why"):
+                detail_bits.append(str(entry["why"]))
             if entry.get("next_action"):
                 detail_bits.append(f"Next: {entry['next_action']}")
-            lines.append(f"  {' ; '.join(detail_bits)}")
-        if len(entries) > limit:
-            lines.append(f"- + {len(entries) - limit} more")
+            if detail_bits:
+                lines.append(f"  {' ; '.join(detail_bits)}")
+
+    user_questions = payload.get("user_questions", []) or []
+    if user_questions:
+        lines.append("")
+        lines.append("**Needs Your Input**")
+        for item in user_questions:
+            lines.append(f"- [{item.get('name')}]({item.get('url')})")
+            detail_bits = []
+            if item.get("why"):
+                detail_bits.append(str(item["why"]))
+            if item.get("question"):
+                detail_bits.append(f"Question: {item['question']}")
+            if detail_bits:
+                lines.append(f"  {' ; '.join(detail_bits)}")
     return "\n".join(lines)
 
 
-def build_daily_briefing(args: argparse.Namespace) -> dict[str, Any]:
+def build_daily_briefing_review_payload(args: argparse.Namespace) -> dict[str, Any]:
     cleanup_args = argparse.Namespace(
         workspace=getattr(args, "workspace", None),
         source_section=list(DEFAULT_INBOX_CLEANUP_SOURCE_SECTIONS),
@@ -4801,7 +5029,215 @@ def build_daily_briefing(args: argparse.Namespace) -> dict[str, Any]:
     return payload
 
 
+def build_daily_briefing_plan_payload(args: argparse.Namespace) -> dict[str, Any]:
+    token = get_token(args)
+    context = load_context()
+    cache = load_cache()
+    workspace = workspace_default(args, context, cache)
+    if not workspace:
+        raise SystemExit("No workspace GID provided and no default workspace in asana-context.json")
+
+    plan = load_json_file(args.plan_file)
+    if str(plan.get("workflow") or "") != DAILY_BRIEFING_PLAN_WORKFLOW:
+        raise SystemExit(
+            f"Unsupported plan workflow in {args.plan_file}. Expected `{DAILY_BRIEFING_PLAN_WORKFLOW}`."
+        )
+
+    user_task_list = my_tasks_project(token, workspace)
+    user_task_list_gid = str(user_task_list.get("gid") or "").strip()
+    if not user_task_list_gid:
+        raise SystemExit("Unable to resolve My Tasks for the selected workspace")
+
+    all_tasks = my_tasks_tasks(
+        token,
+        user_task_list_gid,
+        paginate=not args.no_paginate,
+        limit_pages=args.limit_pages,
+    )
+    tasks_by_gid = {
+        str(task.get("gid")): task
+        for task in all_tasks
+        if isinstance(task, dict) and task.get("gid")
+    }
+    planned_task_gids = [
+        str(entry.get("task_gid") or "").strip()
+        for entry in (plan.get("tasks") or [])
+        if isinstance(entry, dict) and entry.get("task_gid")
+    ]
+    task_contexts = fetch_task_review_context(token, [gid for gid in planned_task_gids if gid in tasks_by_gid])
+    task_cards = {
+        gid: daily_briefing_snapshot_task(task_contexts.get(gid) or {"task": tasks_by_gid.get(gid) or {}, "stories": []})
+        for gid in planned_task_gids
+        if gid in tasks_by_gid
+    }
+
+    categories = resolve_daily_briefing_plan_categories(plan)
+    categories_by_slug = {
+        slugify_category(category.get("slug") or category.get("name")): category
+        for category in categories
+        if isinstance(category, dict)
+    }
+    buckets: dict[str, list[dict[str, Any]]] = {
+        slugify_category(category.get("slug") or category.get("name")): []
+        for category in categories
+        if isinstance(category, dict)
+    }
+    results: list[dict[str, Any]] = []
+    user_questions: list[dict[str, Any]] = []
+
+    for entry in plan.get("tasks", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        task_gid = str(entry.get("task_gid") or "").strip()
+        if not task_gid:
+            continue
+        task_card = task_cards.get(task_gid)
+        if not task_card:
+            results.append(
+                {
+                    "task_gid": task_gid,
+                    "name": entry.get("name"),
+                    "status": "missing_task",
+                    "why": "Task is not currently open in My Tasks.",
+                }
+            )
+            continue
+
+        decision = str(entry.get("decision") or "omit").strip().casefold()
+        confidence = str(entry.get("confidence") or "").strip().casefold()
+        why = normalize_whitespace(entry.get("why"))
+        question = normalize_whitespace(entry.get("question"))
+        next_action = normalize_whitespace(entry.get("next_action"))
+
+        if decision in {"ask_user", "question", "needs_user_input"}:
+            question_entry = dict(task_card)
+            question_entry.update(
+                {
+                    "why": why,
+                    "question": question,
+                    "next_action": next_action,
+                    "confidence": confidence,
+                }
+            )
+            user_questions.append(question_entry)
+            results.append(
+                {
+                    "task_gid": task_gid,
+                    "name": task_card.get("name"),
+                    "status": "ask_user",
+                    "why": why,
+                    "question": question,
+                }
+            )
+            continue
+
+        if decision in {"omit", "leave_as_is", "skip", "background"}:
+            results.append(
+                {
+                    "task_gid": task_gid,
+                    "name": task_card.get("name"),
+                    "status": "omitted",
+                    "why": why,
+                }
+            )
+            continue
+
+        bucket_slug = slugify_category(entry.get("bucket_slug") or "")
+        category = categories_by_slug.get(bucket_slug)
+        if decision in {"highlight", "include", "bucket"} and not category:
+            user_questions.append(
+                {
+                    **task_card,
+                    "why": why or f"Bucket `{bucket_slug}` is missing from the plan categories.",
+                    "question": question or "Which briefing bucket should this task belong in?",
+                    "next_action": next_action,
+                    "confidence": confidence,
+                }
+            )
+            results.append(
+                {
+                    "task_gid": task_gid,
+                    "name": task_card.get("name"),
+                    "status": "missing_bucket",
+                    "bucket_slug": bucket_slug,
+                    "why": why,
+                }
+            )
+            continue
+
+        if bucket_slug not in buckets:
+            buckets[bucket_slug] = []
+        highlighted = dict(task_card)
+        highlighted.update(
+            {
+                "why": why,
+                "next_action": next_action,
+                "question": question,
+                "confidence": confidence,
+                "bucket_slug": bucket_slug,
+                "notes": normalize_whitespace(entry.get("notes")),
+            }
+        )
+        buckets[bucket_slug].append(highlighted)
+        results.append(
+            {
+                "task_gid": task_gid,
+                "name": task_card.get("name"),
+                "status": "highlighted",
+                "bucket_slug": bucket_slug,
+                "why": why,
+            }
+        )
+
+    summary = {
+        "open_task_count": len(all_tasks),
+        "tasks_in_plan": len(plan.get("tasks", []) or []),
+        "highlighted_count": sum(1 for item in results if item.get("status") == "highlighted"),
+        "ask_user_count": sum(1 for item in results if item.get("status") == "ask_user"),
+        "omitted_count": sum(1 for item in results if item.get("status") == "omitted"),
+        "missing_task_count": sum(1 for item in results if item.get("status") == "missing_task"),
+        "missing_bucket_count": sum(1 for item in results if item.get("status") == "missing_bucket"),
+    }
+    payload = {
+        "workflow": DAILY_BRIEFING_PLAN_WORKFLOW,
+        "version": DAILY_BRIEFING_PLAN_VERSION,
+        "mode": "render_plan",
+        "briefing_date": datetime.now().strftime("%B %d, %Y"),
+        "generated_at": now_iso(),
+        "overview": normalize_whitespace(plan.get("overview"))
+        or "AI-selected daily briefing over the current My Tasks list.",
+        "focus": normalize_whitespace(plan.get("focus")),
+        "summary": summary,
+        "categories": categories,
+        "buckets": buckets,
+        "user_questions": user_questions,
+        "results": results,
+        "source": {
+            "command": "python3 scripts/asana_api.py daily-briefing",
+            "workspace_gid": workspace,
+            "my_tasks": {
+                "gid": user_task_list_gid,
+                "name": user_task_list.get("name"),
+            },
+        },
+    }
+    payload["rendered_markdown"] = render_daily_briefing_markdown(payload)
+    return payload
+
+
+def build_daily_briefing(args: argparse.Namespace) -> dict[str, Any]:
+    if getattr(args, "legacy_auto", False):
+        return build_daily_briefing_review_payload(args)
+    if getattr(args, "plan_file", None):
+        return build_daily_briefing_plan_payload(args)
+    return build_daily_briefing_snapshot_payload(args)
+
+
 def command_daily_briefing(args: argparse.Namespace) -> Any:
+    if getattr(args, "markdown", False) and not getattr(args, "plan_file", None) and not getattr(args, "legacy_auto", False):
+        raise SystemExit(
+            "daily-briefing --markdown now requires --plan-file. First run daily-briefing to emit a snapshot, let the AI write a plan JSON, then render that plan."
+        )
     payload = build_daily_briefing(args)
     if getattr(args, "markdown", False):
         print(payload["rendered_markdown"])
@@ -5117,14 +5553,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     daily_briefing_parser = subparsers.add_parser(
         "daily-briefing",
-        help="Render a full morning command center for My Tasks with links, ship-watch detection, and action buckets",
+        help="Generate an AI-gated daily briefing snapshot or render an AI-authored morning briefing plan",
     )
     daily_briefing_parser.add_argument("--workspace", help="Workspace GID override")
     daily_briefing_parser.add_argument(
         "--max-tasks",
         type=int,
         default=0,
-        help="Limit how many My Tasks items to analyze before building the briefing",
+        help="Limit how many My Tasks items to include in the briefing snapshot",
     )
     daily_briefing_parser.add_argument(
         "--no-paginate",
@@ -5138,9 +5574,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Stop My Tasks pagination after N pages",
     )
     daily_briefing_parser.add_argument(
+        "--snapshot-file",
+        help="Write the daily briefing snapshot JSON to this file in addition to stdout",
+    )
+    daily_briefing_parser.add_argument(
+        "--plan-template-file",
+        help="Write an editable daily briefing plan template JSON to this file",
+    )
+    daily_briefing_parser.add_argument(
+        "--plan-file",
+        help="Path to an AI-authored daily briefing plan JSON to render",
+    )
+    daily_briefing_parser.add_argument(
         "--markdown",
         action="store_true",
-        help="Print the rendered markdown briefing instead of JSON",
+        help="Print the rendered markdown briefing from the provided AI-authored plan instead of JSON",
+    )
+    daily_briefing_parser.add_argument(
+        "--legacy-auto",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     add_common_output_flags(daily_briefing_parser)
     daily_briefing_parser.set_defaults(func=command_daily_briefing)
