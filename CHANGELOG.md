@@ -1,5 +1,15 @@
 # Changelog
 
+## [4.0.0.0] - 2026-03-31 — Add My Tasks sorter tag normalization
+
+### Changed
+
+- **My Tasks sorter tags now have a dedicated normalization command.** `set-task-sorting-tag` keeps exactly one personal sorter tag such as `Quick Win`, `Delegate`, `Close Out`, `Deep Work`, `Waiting`, or `Needs Clarity` on a task while preserving every unrelated project tag.
+- **Task tag writes now resolve human tag names instead of forcing raw gids.** `add-task-tag` and `remove-task-tag` can now take an exact tag name directly, and the helper refreshes workspace tags when the cache is stale so agents can work from the labels users actually say out loud.
+- **My Tasks task reads now expose existing tags to the AI layer.** Task bundle and My Tasks review fetches now include tag metadata so a tag-based triage pass can leave correct sorter tags alone instead of blindly reapplying them.
+- **Transient DNS failures no longer abort an Asana run immediately.** The API helper now retries bounded name-resolution and timeout failures before surfacing a network error, which makes long read/write passes more resilient when connectivity is briefly unstable.
+- **The skill docs now explicitly distinguish tag-based sorting from custom-field sorting.** The base skill instructions, README, recipes, and agent metadata now tell the AI to use native task tags for one-of-many My Tasks sorter labels unless the workspace truly uses a custom field.
+
 ## [3.0.0.0] - 2026-03-31 — AI-authored briefings and workflow entrypoints
 
 ### Changed

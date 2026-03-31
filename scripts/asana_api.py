@@ -20,7 +20,9 @@ import json
 import mimetypes
 import os
 import re
+import socket
 import sys
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,6 +45,17 @@ LEGACY_CONTEXT_FILE = SKILL_DIR / "asana-context.json"
 DEFAULT_CACHE_FILE = LOCAL_STATE_DIR / "asana-cache.json"
 LEGACY_SHARED_CACHE_FILE = LEGACY_LOCAL_STATE_DIR / "asana-cache.json"
 LEGACY_CACHE_FILE = SKILL_DIR / ".cache" / "asana-cache.json"
+API_TIMEOUT_SECONDS = 30
+API_NETWORK_RETRY_ATTEMPTS = 3
+API_NETWORK_RETRY_DELAY_SECONDS = 1.0
+DEFAULT_SORTING_TAG_LABELS = (
+    "Quick Win",
+    "Delegate",
+    "Close Out",
+    "Deep Work",
+    "Waiting",
+    "Needs Clarity",
+)
 
 INBOX_CLEANUP_REVIEW_SECTIONS = {
     "ready_to_close": "Review: Likely Ready To Close",
@@ -472,12 +485,55 @@ def project_cache_record(project: dict[str, Any], *, team_gid: str | None = None
     }
 
 
-def tag_cache_record(tag: dict[str, Any]) -> dict[str, Any]:
+def tag_cache_record(tag: dict[str, Any], *, workspace_gid: str | None = None) -> dict[str, Any]:
     return {
         "gid": tag.get("gid"),
         "name": tag.get("name"),
         "color": tag.get("color"),
+        "workspace_gid": workspace_gid,
     }
+
+
+def find_cached_tag_record(
+    cache: dict[str, Any],
+    identifier: str | None,
+    *,
+    workspace_gid: str | None = None,
+) -> dict[str, Any] | None:
+    token = str(identifier or "").strip()
+    if not token:
+        return None
+    if is_gid_like(token):
+        return cache_bucket(cache, "tags")["by_gid"].get(token)
+
+    lowered = normalize_match_key(token)
+    matches: list[dict[str, Any]] = []
+    for record in cache_bucket(cache, "tags")["by_gid"].values():
+        if not isinstance(record, dict):
+            continue
+        if normalize_match_key(record.get("name")) != lowered:
+            continue
+        record_workspace_gid = str(record.get("workspace_gid") or "").strip()
+        if workspace_gid and record_workspace_gid and record_workspace_gid != workspace_gid:
+            continue
+        matches.append(record)
+
+    if not matches:
+        return None
+
+    unique_matches: dict[str, dict[str, Any]] = {}
+    for record in matches:
+        gid = str(record.get("gid") or "").strip()
+        if gid:
+            unique_matches[gid] = record
+    if len(unique_matches) == 1:
+        return next(iter(unique_matches.values()))
+
+    match_list = ", ".join(
+        f"{record.get('name', record.get('gid'))} ({record.get('gid')})"
+        for record in unique_matches.values()
+    )
+    raise SystemExit(f"Ambiguous cached tag identifier '{token}': {match_list}")
 
 
 def get_token(args: argparse.Namespace) -> str:
@@ -809,6 +865,34 @@ def build_url(path_or_url: str, query: dict[str, str]) -> str:
     return f"{base}{separator}{parse.urlencode(query, doseq=True)}"
 
 
+def network_error_detail(exc: BaseException) -> str:
+    if isinstance(exc, error.URLError):
+        reason = getattr(exc, "reason", exc)
+        return str(reason)
+    return str(exc)
+
+
+def is_retryable_network_error(exc: BaseException) -> bool:
+    if isinstance(exc, socket.gaierror | TimeoutError):
+        return True
+    if not isinstance(exc, error.URLError):
+        return False
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, socket.gaierror | TimeoutError):
+        return True
+    reason_text = str(reason or "").casefold()
+    return any(
+        fragment in reason_text
+        for fragment in (
+            "temporary failure in name resolution",
+            "nodename nor servname provided",
+            "name or service not known",
+            "timed out",
+            "timeout",
+        )
+    )
+
+
 def api_request(
     *,
     token: str,
@@ -839,12 +923,20 @@ def api_request(
         method=method.upper(),
     )
 
-    try:
-        with request.urlopen(req) as response:
-            payload = response.read().decode("utf-8")
-    except error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise SystemExit(f"HTTP {exc.code} {exc.reason}\n{detail}") from exc
+    payload = ""
+    for attempt in range(1, API_NETWORK_RETRY_ATTEMPTS + 1):
+        try:
+            with request.urlopen(req, timeout=API_TIMEOUT_SECONDS) as response:
+                payload = response.read().decode("utf-8")
+            break
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise SystemExit(f"HTTP {exc.code} {exc.reason}\n{detail}") from exc
+        except (error.URLError, TimeoutError, socket.gaierror) as exc:
+            if attempt < API_NETWORK_RETRY_ATTEMPTS and is_retryable_network_error(exc):
+                time.sleep(API_NETWORK_RETRY_DELAY_SECONDS * attempt)
+                continue
+            raise SystemExit(f"Network error while calling Asana: {network_error_detail(exc)}") from exc
 
     if not payload:
         return {}
@@ -1031,7 +1123,7 @@ def my_tasks_task_detail_fields(default: str | None = None) -> str:
         "projects.gid,projects.name,memberships.project.gid,memberships.project.name,"
         "memberships.section.gid,memberships.section.name,custom_fields.gid,"
         "custom_fields.name,custom_fields.resource_subtype,custom_fields.display_value,"
-        "custom_fields.enum_value.name"
+        "custom_fields.enum_value.name,tags.gid,tags.name,tags.color"
     )
 
 
@@ -1076,6 +1168,22 @@ def my_tasks_tasks(
         },
     )
     response = maybe_paginate(token, response, paginate, limit_pages)
+    data = response.get("data", [])
+    return data if isinstance(data, list) else []
+
+
+def get_task_tags(
+    token: str,
+    task_gid: str,
+    *,
+    opt_fields: str | None = None,
+) -> list[dict[str, Any]]:
+    response = api_request(
+        token=token,
+        method="GET",
+        path_or_url=f"/tasks/{task_gid}/tags",
+        query={"opt_fields": opt_fields or tag_opt_fields("gid,name,color")},
+    )
     data = response.get("data", [])
     return data if isinstance(data, list) else []
 
@@ -2121,6 +2229,69 @@ def resolve_many_user_identifiers(
         if user_gid:
             resolved.append(user_gid)
     return resolved
+
+
+def refresh_workspace_tags(
+    token: str,
+    workspace_gid: str,
+    cache: dict[str, Any],
+) -> list[dict[str, Any]]:
+    response = api_request(
+        token=token,
+        method="GET",
+        path_or_url=f"/workspaces/{workspace_gid}/tags",
+        query={"opt_fields": tag_opt_fields("gid,name,color")},
+    )
+    tags = response.get("data", [])
+    if isinstance(tags, list):
+        cache_records(
+            cache,
+            "tags",
+            [tag_cache_record(item, workspace_gid=workspace_gid) for item in tags if isinstance(item, dict)],
+        )
+        save_cache(cache)
+        return tags
+    return []
+
+
+def resolve_tag_identifier(
+    value: str | None,
+    *,
+    token: str,
+    cache: dict[str, Any],
+    workspace_gid: str | None = None,
+) -> dict[str, Any]:
+    token_value = str(value or "").strip()
+    if not token_value:
+        raise SystemExit("Missing tag identifier.")
+
+    record = find_cached_tag_record(cache, token_value, workspace_gid=workspace_gid)
+    if record:
+        return record
+
+    if workspace_gid:
+        refresh_workspace_tags(token, workspace_gid, cache)
+        record = find_cached_tag_record(cache, token_value, workspace_gid=workspace_gid)
+        if record:
+            return record
+
+    workspace_note = f" in workspace {workspace_gid}" if workspace_gid else ""
+    raise SystemExit(f"No tag matching '{token_value}' was found{workspace_note}.")
+
+
+def normalize_sorting_tag_labels(values: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_value in values or list(DEFAULT_SORTING_TAG_LABELS):
+        label = str(raw_value or "").strip()
+        if not label:
+            continue
+        key = label.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(label)
+    return normalized
 
 
 def add_common_output_flags(parser: argparse.ArgumentParser) -> None:
@@ -3299,7 +3470,8 @@ def build_task_bundle_payload(
                     or "gid,name,notes,html_notes,resource_subtype,completed,completed_at,assignee.gid,assignee.name,"
                     "due_on,due_at,permalink_url,parent.gid,parent.name,memberships.project.gid,memberships.project.name,"
                     "memberships.section.gid,memberships.section.name,custom_fields.gid,custom_fields.name,"
-                    "custom_fields.resource_subtype,custom_fields.display_value,custom_fields.enum_value.name"
+                    "custom_fields.resource_subtype,custom_fields.display_value,custom_fields.enum_value.name,"
+                    "tags.gid,tags.name,tags.color"
                 )
             },
         },
@@ -3463,6 +3635,7 @@ def command_remove_task_followers(args: argparse.Namespace) -> Any:
 
 def command_task_tags(args: argparse.Namespace) -> Any:
     token = get_token(args)
+    cache = load_cache()
     task_gids = parse_gid_args(getattr(args, "task_gids", None) or getattr(args, "task_gid", None))
     opt_fields = args.opt_fields or tag_opt_fields("gid,name,color")
     actions = [
@@ -3474,6 +3647,12 @@ def command_task_tags(args: argparse.Namespace) -> Any:
         for task_gid in task_gids
     ]
     items = batch_actions_request_chunked(token, actions)
+    for item in items:
+        body = item.get("body", {})
+        tags = body.get("data", []) if isinstance(body, dict) else []
+        if isinstance(tags, list):
+            cache_records(cache, "tags", [tag_cache_record(tag) for tag in tags if isinstance(tag, dict)])
+    save_cache(cache)
     return render_many_results(
         "task-tags",
         [
@@ -3504,7 +3683,7 @@ def command_tags(args: argparse.Namespace) -> Any:
     response = maybe_paginate(token, response, args.paginate, args.limit_pages)
     tags = response.get("data", [])
     if isinstance(tags, list):
-        cache_records(cache, "tags", [tag_cache_record(item) for item in tags if isinstance(item, dict)])
+        cache_records(cache, "tags", [tag_cache_record(item, workspace_gid=workspace) for item in tags if isinstance(item, dict)])
         save_cache(cache)
     print_json(response, args.compact)
     return response
@@ -3673,24 +3852,159 @@ def command_create_tag(args: argparse.Namespace) -> Any:
         path_or_url="/tags",
         json_body={"data": payload},
     )
+    tag = response.get("data", {})
+    if isinstance(tag, dict):
+        cache_record(cache, "tags", tag_cache_record(tag, workspace_gid=workspace))
+        save_cache(cache)
     print_json(response, args.compact)
     return response
 
 
 def command_add_task_tag(args: argparse.Namespace) -> Any:
+    token = get_token(args)
+    context = load_context()
+    cache = load_cache()
+    workspace = workspace_default(args, context, cache)
+    tag = resolve_tag_identifier(
+        args.tag_gid,
+        token=token,
+        cache=cache,
+        workspace_gid=workspace,
+    )
     return post_task_relationship(
         args,
         f"/tasks/{args.task_gid}/addTag",
-        {"tag": args.tag_gid},
+        {"tag": str(tag.get("gid"))},
     )
 
 
 def command_remove_task_tag(args: argparse.Namespace) -> Any:
+    token = get_token(args)
+    context = load_context()
+    cache = load_cache()
+    workspace = workspace_default(args, context, cache)
+    tag = resolve_tag_identifier(
+        args.tag_gid,
+        token=token,
+        cache=cache,
+        workspace_gid=workspace,
+    )
     return post_task_relationship(
         args,
         f"/tasks/{args.task_gid}/removeTag",
-        {"tag": args.tag_gid},
+        {"tag": str(tag.get("gid"))},
     )
+
+
+def command_set_task_sorting_tag(args: argparse.Namespace) -> Any:
+    token = get_token(args)
+    context = load_context()
+    cache = load_cache()
+    workspace = workspace_default(args, context, cache)
+    sorting_labels = normalize_sorting_tag_labels(args.sorting_label)
+    sorter_records = [
+        resolve_tag_identifier(label, token=token, cache=cache, workspace_gid=workspace)
+        for label in sorting_labels
+    ]
+    sorter_by_gid = {
+        str(record.get("gid")): record
+        for record in sorter_records
+        if str(record.get("gid") or "").strip()
+    }
+    desired_tag = resolve_tag_identifier(
+        args.sorting_tag,
+        token=token,
+        cache=cache,
+        workspace_gid=workspace,
+    )
+    desired_tag_gid = str(desired_tag.get("gid") or "").strip()
+    if desired_tag_gid not in sorter_by_gid:
+        allowed_names = ", ".join(record.get("name", record.get("gid")) for record in sorter_by_gid.values())
+        raise SystemExit(
+            f"Sorting tag '{args.sorting_tag}' is not in the allowed sorter set: {allowed_names}"
+        )
+
+    current_tags = get_task_tags(token, args.task_gid)
+    current_by_gid = {
+        str(tag.get("gid")): tag
+        for tag in current_tags
+        if isinstance(tag, dict) and str(tag.get("gid") or "").strip()
+    }
+    current_sorter_tags = [
+        tag
+        for tag in current_tags
+        if isinstance(tag, dict) and str(tag.get("gid") or "").strip() in sorter_by_gid
+    ]
+    removed_sorting_tags = [
+        tag
+        for tag in current_sorter_tags
+        if str(tag.get("gid") or "").strip() != desired_tag_gid
+    ]
+    add_needed = desired_tag_gid not in current_by_gid
+
+    if removed_sorting_tags or add_needed:
+        for tag in removed_sorting_tags:
+            api_request(
+                token=token,
+                method="POST",
+                path_or_url=f"/tasks/{args.task_gid}/removeTag",
+                json_body={"data": {"tag": str(tag.get("gid"))}},
+            )
+        if add_needed:
+            api_request(
+                token=token,
+                method="POST",
+                path_or_url=f"/tasks/{args.task_gid}/addTag",
+                json_body={"data": {"tag": desired_tag_gid}},
+            )
+
+    resulting_tags: list[dict[str, Any]] = []
+    desired_tag_present = False
+    for tag in current_tags:
+        if not isinstance(tag, dict):
+            continue
+        tag_gid = str(tag.get("gid") or "").strip()
+        if not tag_gid:
+            continue
+        if tag_gid == desired_tag_gid:
+            desired_tag_present = True
+            resulting_tags.append(tag)
+            continue
+        if tag_gid in sorter_by_gid:
+            continue
+        resulting_tags.append(tag)
+    if not desired_tag_present:
+        resulting_tags.append(
+            current_by_gid.get(desired_tag_gid)
+            or {"gid": desired_tag_gid, "name": desired_tag.get("name"), "color": desired_tag.get("color")}
+        )
+
+    payload = {
+        "command": "set-task-sorting-tag",
+        "task_gid": args.task_gid,
+        "sorting_tag": {
+            "gid": desired_tag_gid,
+            "name": desired_tag.get("name"),
+            "color": desired_tag.get("color"),
+        },
+        "status": "updated" if removed_sorting_tags or add_needed else "unchanged",
+        "added_sorting_tag": add_needed,
+        "removed_sorting_tags": [
+            {"gid": tag.get("gid"), "name": tag.get("name"), "color": tag.get("color")}
+            for tag in removed_sorting_tags
+        ],
+        "preserved_tags": [
+            {"gid": tag.get("gid"), "name": tag.get("name"), "color": tag.get("color")}
+            for tag in current_tags
+            if isinstance(tag, dict) and str(tag.get("gid") or "").strip() not in sorter_by_gid
+        ],
+        "resulting_tags": [
+            {"gid": tag.get("gid"), "name": tag.get("name"), "color": tag.get("color")}
+            for tag in resulting_tags
+        ],
+    }
+    print_json(payload, args.compact)
+    return payload
 
 
 def command_add_task_dependencies(args: argparse.Namespace) -> Any:
@@ -5991,15 +6305,32 @@ def build_parser() -> argparse.ArgumentParser:
 
     add_task_tag_parser = subparsers.add_parser("add-task-tag", help="Add a tag to a task")
     add_task_tag_parser.add_argument("task_gid")
-    add_task_tag_parser.add_argument("tag_gid")
+    add_task_tag_parser.add_argument("tag_gid", help="Tag gid or exact tag name")
+    add_task_tag_parser.add_argument("--workspace", help="Workspace GID override for tag-name resolution")
     add_common_output_flags(add_task_tag_parser)
     add_task_tag_parser.set_defaults(func=command_add_task_tag)
 
     remove_task_tag_parser = subparsers.add_parser("remove-task-tag", help="Remove a tag from a task")
     remove_task_tag_parser.add_argument("task_gid")
-    remove_task_tag_parser.add_argument("tag_gid")
+    remove_task_tag_parser.add_argument("tag_gid", help="Tag gid or exact tag name")
+    remove_task_tag_parser.add_argument("--workspace", help="Workspace GID override for tag-name resolution")
     add_common_output_flags(remove_task_tag_parser)
     remove_task_tag_parser.set_defaults(func=command_remove_task_tag)
+
+    set_task_sorting_tag_parser = subparsers.add_parser(
+        "set-task-sorting-tag",
+        help="Set exactly one sorting tag on a task while preserving unrelated tags",
+    )
+    set_task_sorting_tag_parser.add_argument("task_gid")
+    set_task_sorting_tag_parser.add_argument("sorting_tag", help="Desired sorting tag gid or exact tag name")
+    set_task_sorting_tag_parser.add_argument("--workspace", help="Workspace GID override for tag-name resolution")
+    set_task_sorting_tag_parser.add_argument(
+        "--sorting-label",
+        action="append",
+        help="Allowed sorting tag name; repeat to override the default sorter set",
+    )
+    add_common_output_flags(set_task_sorting_tag_parser)
+    set_task_sorting_tag_parser.set_defaults(func=command_set_task_sorting_tag)
 
     add_task_dependencies_parser = subparsers.add_parser("add-task-dependencies", help="Add dependencies to a task")
     add_task_dependencies_parser.add_argument("task_gid")

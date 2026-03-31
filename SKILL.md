@@ -78,6 +78,10 @@ The helper reads the PAT from `ASANA_ACCESS_TOKEN` first, then falls back to the
 42. Before committing or pushing any skill change, run `python3 scripts/check_release.py`. Do not push until it passes.
 43. If `check_release.py` fails because release metadata is missing, run `python3 scripts/bump_version.py --part auto --title "Short release title"`. Let the helper choose the semantically correct bump from the current diff unless the user explicitly wants an override. Replace the scaffold line in `CHANGELOG.md` with a real user-facing summary, rerun `python3 scripts/check_release.py`, then commit and push.
 44. Never leave the top changelog entry on the placeholder text `Describe the user-visible change here.` If you bumped the version, you own writing the matching release note before you finish.
+45. When the user wants a single sorter label on My Tasks such as `Quick Win`, `Delegate`, `Close Out`, `Deep Work`, `Waiting`, or `Needs Clarity`, treat those as native Asana task tags unless the workspace explicitly uses a custom field instead.
+46. For one-of-many sorter tags, prefer `python3 scripts/asana_api.py set-task-sorting-tag <task_gid> "<label>"` over ad hoc tag mutation. That command removes only the other sorter tags, preserves unrelated project tags, and leaves the task untouched when the desired sorter tag is already correct.
+47. `add-task-tag` and `remove-task-tag` now accept exact tag names as well as raw gids. Use exact names when the user supplied human labels and the tag cache or workspace tag list can resolve them.
+48. If the user asks for a full tag-based My Tasks pass, read the task title, description, existing sorter tags, and any blocking context first, then apply exactly one sorter tag per task while preserving every non-sorter tag.
 
 ## AI Message Format
 
@@ -152,6 +156,8 @@ python3 scripts/asana_api.py comment-task <task_gid> --text "Status update"
 python3 scripts/asana_api.py create-section <project_gid> --name "Ready"
 python3 scripts/asana_api.py add-task-followers <task_gid> me
 python3 scripts/asana_api.py add-task-tag <task_gid> <tag_gid>
+python3 scripts/asana_api.py add-task-tag <task_gid> "Deep Work"
+python3 scripts/asana_api.py set-task-sorting-tag <task_gid> "Needs Clarity"
 python3 scripts/asana_api.py add-task-dependencies <task_gid> <other_task_gid>
 python3 scripts/asana_api.py batch --actions '[{"method":"get","relative_path":"/users/me"}]'
 ```

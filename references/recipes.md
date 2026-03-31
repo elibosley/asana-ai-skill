@@ -324,8 +324,14 @@ Tag a task:
 ```bash
 python3 scripts/asana_api.py create-tag --name "Needs Copy"
 python3 scripts/asana_api.py add-task-tag <task_gid> <tag_gid>
+python3 scripts/asana_api.py add-task-tag <task_gid> "Deep Work"
 python3 scripts/asana_api.py remove-task-tag <task_gid> <tag_gid>
+python3 scripts/asana_api.py set-task-sorting-tag <task_gid> "Waiting"
 ```
+
+Use `set-task-sorting-tag` when the task should carry exactly one sorter label such as
+`Quick Win`, `Delegate`, `Close Out`, `Deep Work`, `Waiting`, or `Needs Clarity`.
+It removes only the other sorter tags and preserves unrelated project tags.
 
 Create a custom field:
 
