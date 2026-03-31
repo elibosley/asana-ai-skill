@@ -21,6 +21,7 @@ The command should not use built-in heuristics to decide what is actionable. Pyt
 3. Render: turn that reviewed plan into JSON or markdown.
 
 The actionability decision belongs to the AI plan, not to Python heuristics.
+For normal agent use, the user should not be asked to author the plan manually. The plan JSON is an internal artifact the agent creates automatically before showing the final briefing.
 
 ## Use When
 
@@ -59,6 +60,17 @@ Optional placeholders:
 - `SNAPSHOT_FILE`
 - `PLAN_TEMPLATE_FILE`
 - `PLAN_FILE`
+
+## User Experience
+
+The default expected behavior is:
+
+1. the agent runs `daily-briefing`
+2. the agent writes the plan JSON itself
+3. the agent renders the final morning command center
+4. the agent only asks the user about tasks marked `ask_user`
+
+The plan file exists so the workflow stays auditable and inspectable. It is not meant to make the user do extra work during a normal morning briefing run.
 
 ## Snapshot Contract
 
@@ -289,6 +301,8 @@ Then render the reviewed plan with:
 `python3 scripts/asana_api.py daily-briefing --plan-file /tmp/asana-daily-briefing-plan.json --markdown`
 
 Do not mutate tasks, move sections, or add comments.
+
+Do this end to end yourself. Do not stop after generating the snapshot or ask the user to fill in the plan unless the user explicitly wants to inspect the intermediate JSON.
 ```
 
 ## Invocation Short Forms

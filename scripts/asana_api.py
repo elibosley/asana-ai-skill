@@ -1911,7 +1911,7 @@ def skill_feature_highlights() -> list[dict[str, str]]:
         },
         {
             "command": "python3 scripts/asana_api.py daily-briefing",
-            "use_when": "Generate an AI-gated daily briefing snapshot and plan scaffold before deciding which tasks are actionable today.",
+            "use_when": "Run the AI-gated daily briefing workflow: generate the snapshot internally, auto-author the briefing plan, and only ask the user about truly ambiguous tasks.",
         },
         {
             "command": "python3 scripts/asana_api.py daily-briefing --plan-file /tmp/asana-daily-briefing-plan.json --markdown",
@@ -4849,7 +4849,7 @@ def build_daily_briefing_snapshot_payload(args: argparse.Namespace) -> dict[str,
         "starter_buckets": daily_briefing_bucket_seeds(),
         "tasks": snapshot_tasks,
         "instructions": {
-            "summary": "Use this snapshot to decide which tasks are actually actionable today. The AI should choose the briefing buckets and only highlight the tasks that deserve attention now.",
+            "summary": "Use this snapshot to decide which tasks are actually actionable today. The agent should auto-author the daily briefing plan from this data, render it for the user, and only surface ask_user items when ambiguity materially changes the day plan.",
             "required_task_fields": [
                 "decision",
                 "bucket_slug",

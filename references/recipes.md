@@ -152,7 +152,7 @@ python3 scripts/asana_api.py daily-briefing --plan-file /tmp/asana-daily-briefin
 ```
 
 Use `daily-briefing` when the question is "what should I focus on this morning?" or "give me the full command center for my tasks."
-It is intentionally read-only and now AI-gated: the first run emits a snapshot plus plan scaffold, the AI decides which tasks are actually actionable and which buckets matter today, and the reviewed plan is then rendered into JSON or markdown. Do not rely on built-in heuristics to decide the morning queue.
+It is intentionally read-only and now AI-gated: the helper emits a snapshot plus plan scaffold, but the agent should author that plan itself, render the final command center, and only ask the user about the small set of genuinely ambiguous tasks. Do not rely on built-in heuristics to decide the morning queue.
 
 Full spec:
 
