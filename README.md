@@ -70,6 +70,15 @@ Once installed, just talk to your AI in plain English. Here are some things you 
 | "Find tasks about [topic] in [project]" | Search across projects by keyword |
 | "Create a task for [person] to [do something] by [date]" | Create and assign a task in one sentence |
 
+If your agent exposes skill slash commands, the install also adds workflow-specific entrypoints:
+
+- `/asana-daily-briefing`
+- `/asana-inbox-cleanup`
+- `/asana-close-out-sections`
+- `/asana-project-working-set`
+- `/asana-weekly-manager-summary`
+- `/asana-friday-follow-up-summary`
+
 ## What Is Included
 
 - **Daily briefing** — a read-only morning command center for My Tasks with direct links and priority buckets
@@ -78,6 +87,7 @@ Once installed, just talk to your AI in plain English. Here are some things you 
 - **Section management** — retire stale personal sections safely by previewing, relocating tasks, and deleting only when empty
 - **Bulk import** — create tasks from spreadsheets with assignees, due dates, priorities, and sections
 - **Direct links** — every task the AI creates or modifies includes a clickable Asana URL
+- **Workflow entrypoints** — install companion skills such as `/asana-daily-briefing` and `/asana-inbox-cleanup` that jump straight into the higher-level automation specs
 
 ## Updating
 
@@ -155,6 +165,7 @@ python3 ~/Code/asana-ai-skill/scripts/asana_api.py whoami
 ### Repo structure
 
 - `SKILL.md` plus `agents/openai.yaml` — the skill definitions
+- `entrypoints/` — companion workflow skills like `asana-daily-briefing` and `asana-inbox-cleanup`
 - `scripts/asana_api.py` — API client (standard library only)
 - `scripts/bootstrap_skill.py` — first-time setup
 - `scripts/install_skill.py` — local install or update

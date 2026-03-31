@@ -22,6 +22,15 @@ DEFAULT_DESTS = {
     "codex": Path.home() / ".codex" / "skills" / "asana",
     "claude": Path.home() / ".claude" / "skills" / "asana",
 }
+ENTRYPOINT_ROOT = REPO_ROOT / "entrypoints"
+COMPANION_SKILLS = {
+    "asana-daily-briefing": ENTRYPOINT_ROOT / "asana-daily-briefing",
+    "asana-inbox-cleanup": ENTRYPOINT_ROOT / "asana-inbox-cleanup",
+    "asana-close-out-sections": ENTRYPOINT_ROOT / "asana-close-out-sections",
+    "asana-project-working-set": ENTRYPOINT_ROOT / "asana-project-working-set",
+    "asana-weekly-manager-summary": ENTRYPOINT_ROOT / "asana-weekly-manager-summary",
+    "asana-friday-follow-up-summary": ENTRYPOINT_ROOT / "asana-friday-follow-up-summary",
+}
 PRESERVED_FILES = [
     (".secrets/asana_pat", False),
     ("asana-context.json", True),
@@ -116,6 +125,29 @@ def install_copy(dest: Path) -> None:
     shutil.copytree(REPO_ROOT, dest, ignore=ignore_for_copy, dirs_exist_ok=False)
 
 
+def install_companion(dest: Path, source: Path, mode: str) -> None:
+    if dest.exists() or dest.is_symlink():
+        remove_existing(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if mode == "symlink":
+        dest.symlink_to(source, target_is_directory=True)
+        return
+    shutil.copytree(source, dest, ignore=ignore_for_copy, dirs_exist_ok=False)
+
+
+def install_companion_skills(skill_root: Path, mode: str) -> list[tuple[str, Path, Path]]:
+    installed: list[tuple[str, Path, Path]] = []
+    for name, source in COMPANION_SKILLS.items():
+        if not source.exists():
+            raise SystemExit(f"Companion skill source is missing: {source}")
+        if not (source / "SKILL.md").exists():
+            raise SystemExit(f"Companion skill is missing SKILL.md: {source / 'SKILL.md'}")
+        dest = skill_root / name
+        install_companion(dest, source, mode)
+        installed.append((name, dest, Path(os.path.realpath(dest))))
+    return installed
+
+
 def install_one(dest: Path, mode: str, replace: bool) -> tuple[Path, Path]:
     resolved_dest = safe_resolve(dest)
 
@@ -172,6 +204,8 @@ def write_next_steps(installed: list[tuple[str, Path, Path]], mode: str) -> None
                 f"Installed Asana skill for {agent} at {install_path} -> {source_path} "
                 f"using {mode} mode."
             )
+        companion_names = ", ".join(sorted(COMPANION_SKILLS))
+        print(f"Workflow entrypoints installed for {agent}: {companion_names}")
     print(f"Current skill version: v{current_version}")
     print("Next steps:")
     print("1. Add your PAT to ASANA_ACCESS_TOKEN or ~/.agent-skills/asana/asana_pat.")
@@ -189,6 +223,7 @@ def main() -> None:
     for agent, dest in selected_targets(args.agent, args.dest):
         install_path, source_path = install_one(dest, args.mode, args.replace)
         installed.append((agent, install_path, source_path))
+        install_companion_skills(install_path.parent, args.mode)
     write_next_steps(installed, args.mode)
 
 

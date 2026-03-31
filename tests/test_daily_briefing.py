@@ -87,6 +87,17 @@ class DailyBriefingPlanTests(unittest.TestCase):
             "version": ASANA_API.DAILY_BRIEFING_PLAN_VERSION,
             "overview": "Three tasks look worth attention this morning.",
             "focus": "Finish validation and unblock external follow-ups before pulling in fresh build work.",
+            "final_markdown": "\n".join(
+                [
+                    "**Morning Command Center — March 31, 2026**",
+                    "- [Verify PR #4242 in preview](https://app.asana.com/1/2/3)",
+                    "  Action: Run the preview verification pass now.",
+                    "",
+                    "**Needs Your Input**",
+                    "- [Decide policy rollout communication](https://app.asana.com/1/2/4)",
+                    "  Decision needed: Do you still want this in the active morning queue?",
+                ]
+            ),
             "categories": [
                 {"slug": "execute-now", "name": "Execute Now", "display_order": 1},
                 {"slug": "needs-follow-up", "name": "Needs Follow-Up", "display_order": 2},
@@ -185,8 +196,34 @@ class DailyBriefingPlanTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["ask_user_count"], 1)
         self.assertIn("execute-now", payload["buckets"])
         self.assertEqual(payload["user_questions"][0]["task_gid"], "task-2")
-        self.assertIn("[Verify PR #4242 in preview](https://app.asana.com/1/2/3)", payload["rendered_markdown"])
-        self.assertIn("**Needs Your Input**", payload["rendered_markdown"])
+        self.assertIn("[Verify PR #4242 in preview](https://app.asana.com/1/2/3)", payload["final_markdown"])
+        self.assertIn("**Needs Your Input**", payload["final_markdown"])
+
+    def test_plan_payload_requires_ai_authored_final_markdown(self) -> None:
+        plan = {
+            "workflow": ASANA_API.DAILY_BRIEFING_PLAN_WORKFLOW,
+            "version": ASANA_API.DAILY_BRIEFING_PLAN_VERSION,
+            "overview": "One task matters.",
+            "focus": "Handle the urgent task first.",
+            "final_markdown": "",
+            "categories": [],
+            "tasks": [],
+        }
+        args = argparse.Namespace(
+            workspace=None,
+            no_paginate=False,
+            limit_pages=0,
+            token="fake-token",
+            plan_file="/tmp/unused-plan.json",
+        )
+
+        with patch.object(ASANA_API, "load_json_file", return_value=plan), patch.object(
+            ASANA_API, "workspace_default", return_value="workspace-1"
+        ):
+            with self.assertRaises(SystemExit) as exc:
+                ASANA_API.build_daily_briefing_plan_payload(args)
+
+        self.assertIn("final_markdown", str(exc.exception))
 
 
 if __name__ == "__main__":

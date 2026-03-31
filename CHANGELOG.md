@@ -1,5 +1,14 @@
 # Changelog
 
+## [3.0.0.0] - 2026-03-31 — AI-authored briefings and workflow entrypoints
+
+### Changed
+
+- **Daily briefing markdown is now authored by the AI instead of a Python renderer.** The `daily-briefing` workflow still uses a structured reviewable plan, but the final user-facing output now comes from the plan's `final_markdown` field so the morning briefing can include real links, action framing, and richer semantic detail instead of a fixed Python template.
+- **The daily briefing contract is now explicitly AI-gated end to end.** The helper validates the reviewed plan JSON and passes the AI-authored markdown through directly, while the automation docs and regression tests now require `final_markdown` rather than relying on Python-owned prose generation.
+- **The installer now ships dedicated workflow entrypoints alongside the base `asana` skill.** Installs now include companion skills such as `asana-daily-briefing`, `asana-inbox-cleanup`, `asana-close-out-sections`, `asana-project-working-set`, `asana-weekly-manager-summary`, and `asana-friday-follow-up-summary` so agents can jump directly into the higher-level workflow specs without rediscovering them from the base skill prompt.
+- **Workflow entrypoint installs are now validated and documented.** The install path now fails fast if a companion skill source is missing, the README now advertises the new `/asana-*` entrypoints, and new installer tests cover copy-mode companion skill installs so the workflow surface stays shippable in both install modes.
+
 ## [2.0.0.0] - 2026-03-31 — Batch lookup support for read commands
 
 ### Changed

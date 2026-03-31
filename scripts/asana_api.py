@@ -5070,6 +5070,7 @@ def build_daily_briefing_plan_template(snapshot_payload: dict[str, Any]) -> dict
         },
         "overview": "",
         "focus": "",
+        "final_markdown": "",
         "categories": daily_briefing_bucket_seeds(),
         "tasks": task_templates,
     }
@@ -5138,6 +5139,11 @@ def build_daily_briefing_snapshot_payload(args: argparse.Namespace) -> dict[str,
                 "next_action",
                 "question",
             ],
+            "required_plan_fields": [
+                "overview",
+                "focus",
+                "final_markdown",
+            ],
             "decision_values": [
                 "highlight",
                 "ask_user",
@@ -5179,68 +5185,6 @@ def resolve_daily_briefing_plan_categories(plan: dict[str, Any]) -> list[dict[st
             str(item.get("name") or item.get("slug") or "").casefold(),
         ),
     )
-
-
-def render_daily_briefing_markdown(payload: dict[str, Any]) -> str:
-    summary = payload.get("summary", {}) or {}
-    categories = payload.get("categories") or daily_briefing_bucket_seeds()
-    buckets = payload.get("buckets", {}) or {}
-    lines = [f"**Morning Command Center — {payload.get('briefing_date', '')}**"]
-    overview = normalize_whitespace(payload.get("overview"))
-    if overview:
-        lines.append(f"- {overview}")
-    else:
-        lines.append(
-            f"- Today at a glance: {summary.get('open_task_count', 0)} open tasks, {summary.get('highlighted_count', 0)} highlighted by the AI plan."
-        )
-    focus = normalize_whitespace(payload.get("focus"))
-    if focus:
-        lines.append(f"- Focus today: {focus}")
-
-    for category in categories:
-        if not isinstance(category, dict):
-            continue
-        slug = slugify_category(category.get("slug") or category.get("name"))
-        title = str(category.get("name") or slug.replace("-", " ").title())
-        entries = buckets.get(slug, []) or []
-        lines.append("")
-        lines.append(f"**{title}**")
-        if not entries:
-            lines.append("- None today.")
-            continue
-        for entry in entries:
-            lines.append(f"- [{entry.get('name')}]({entry.get('url')})")
-            detail_bits: list[str] = []
-            if entry.get("primary_pr"):
-                detail_bits.append(str(entry["primary_pr"]))
-            memberships = entry.get("project_memberships") or []
-            if memberships:
-                detail_bits.append(str(memberships[0]))
-            if entry.get("due_date"):
-                detail_bits.append(f"due {entry['due_date']}")
-            if entry.get("current_section"):
-                detail_bits.append(f"My Tasks: {entry['current_section']}")
-            if entry.get("why"):
-                detail_bits.append(str(entry["why"]))
-            if entry.get("next_action"):
-                detail_bits.append(f"Next: {entry['next_action']}")
-            if detail_bits:
-                lines.append(f"  {' ; '.join(detail_bits)}")
-
-    user_questions = payload.get("user_questions", []) or []
-    if user_questions:
-        lines.append("")
-        lines.append("**Needs Your Input**")
-        for item in user_questions:
-            lines.append(f"- [{item.get('name')}]({item.get('url')})")
-            detail_bits = []
-            if item.get("why"):
-                detail_bits.append(str(item["why"]))
-            if item.get("question"):
-                detail_bits.append(f"Question: {item['question']}")
-            if detail_bits:
-                lines.append(f"  {' ; '.join(detail_bits)}")
-    return "\n".join(lines)
 
 
 def build_daily_briefing_review_payload(args: argparse.Namespace) -> dict[str, Any]:
@@ -5305,7 +5249,6 @@ def build_daily_briefing_review_payload(args: argparse.Namespace) -> dict[str, A
             "my_tasks": cleanup_payload.get("my_tasks"),
         },
     }
-    payload["rendered_markdown"] = render_daily_briefing_markdown(payload)
     return payload
 
 
@@ -5321,6 +5264,11 @@ def build_daily_briefing_plan_payload(args: argparse.Namespace) -> dict[str, Any
     if str(plan.get("workflow") or "") != DAILY_BRIEFING_PLAN_WORKFLOW:
         raise SystemExit(
             f"Unsupported plan workflow in {args.plan_file}. Expected `{DAILY_BRIEFING_PLAN_WORKFLOW}`."
+        )
+    final_markdown = str(plan.get("final_markdown") or "").strip()
+    if not final_markdown:
+        raise SystemExit(
+            f"Daily briefing plan in {args.plan_file} must include a non-empty `final_markdown` field authored by the AI."
         )
 
     user_task_list = my_tasks_project(token, workspace)
@@ -5492,6 +5440,7 @@ def build_daily_briefing_plan_payload(args: argparse.Namespace) -> dict[str, Any
         "buckets": buckets,
         "user_questions": user_questions,
         "results": results,
+        "final_markdown": final_markdown,
         "source": {
             "command": "python3 scripts/asana_api.py daily-briefing",
             "workspace_gid": workspace,
@@ -5501,7 +5450,6 @@ def build_daily_briefing_plan_payload(args: argparse.Namespace) -> dict[str, Any
             },
         },
     }
-    payload["rendered_markdown"] = render_daily_briefing_markdown(payload)
     return payload
 
 
@@ -5520,7 +5468,12 @@ def command_daily_briefing(args: argparse.Namespace) -> Any:
         )
     payload = build_daily_briefing(args)
     if getattr(args, "markdown", False):
-        print(payload["rendered_markdown"])
+        final_markdown = str(payload.get("final_markdown") or "").strip()
+        if not final_markdown:
+            raise SystemExit(
+                "daily-briefing --markdown requires the AI-authored plan JSON to include `final_markdown`."
+            )
+        print(final_markdown)
     else:
         print_json(payload, args.compact)
     return payload

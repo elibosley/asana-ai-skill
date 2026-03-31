@@ -225,7 +225,8 @@ Rendering the plan should produce:
 - bucketed highlighted tasks with direct links
 - a `Needs Your Input` section when the AI marked tasks as `ask_user`
 
-Markdown is the preferred human-facing mode.
+The AI should author that final markdown directly in the plan JSON.
+Python should validate and pass it through, not invent the human-facing briefing template.
 
 ## Example Plan
 
@@ -241,6 +242,7 @@ Markdown is the preferred human-facing mode.
   },
   "overview": "Three tasks deserve attention this morning.",
   "focus": "Finish verification and unblock follow-ups before pulling in fresh implementation work.",
+  "final_markdown": "**Morning Command Center — March 31, 2026**\n- [Verify PR #4242 in preview](https://app.asana.com/1/2/3)\n  Action: Run the preview verification pass now.\n  Why it matters: This has a concrete verification step and should be cleared before new implementation starts.\n\n**Needs Your Input**\n- [Decide policy rollout communication](https://app.asana.com/1/2/4)\n  Decision needed: Do you want this treated as a top-of-day decision or as a draft-for-review item?",
   "categories": [
     {
       "slug": "execute-now",
@@ -296,6 +298,8 @@ Write an AI-authored plan JSON to `/tmp/asana-daily-briefing-plan.json`:
 - keep the buckets useful and easy to scan
 - leave ambiguous tasks as `ask_user`
 - omit low-signal tasks from the visible briefing
+- include a `final_markdown` field that is the exact human-facing command center you want shown to the user
+- put links, concrete actions, and task detail into that markdown directly instead of relying on helper rendering
 
 Then render the reviewed plan with:
 `python3 scripts/asana_api.py daily-briefing --plan-file /tmp/asana-daily-briefing-plan.json --markdown`
