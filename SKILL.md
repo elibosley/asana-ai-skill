@@ -1,6 +1,6 @@
 ---
 name: asana
-description: Use when reading or updating Asana data through the REST API, including tasks, projects, sections, stories/comments, teams, users, tags, attachments, custom fields, and workspace metadata. Best for local automation or one-off Asana admin/workflow tasks where an AI coding agent should make direct API calls with a personal access token.
+description: Use when reading or updating Asana data through the REST API, including tasks, projects, sections, stories/comments, teams, users, tags, attachments, custom fields, and workspace metadata. Best for local automation or one-off Asana admin/workflow tasks where an AI coding agent should make direct API calls with a personal access token. Also use it for higher-level workflows such as daily-briefing command centers, inbox-cleanup personal PM triage, close-out-sections cleanup, assigned-work working-set triage, manager summary rollups, and recurring follow-up summaries.
 ---
 
 # Asana
