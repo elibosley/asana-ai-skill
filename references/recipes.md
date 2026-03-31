@@ -134,8 +134,8 @@ python3 scripts/asana_api.py inbox-cleanup --manager-comments
 python3 scripts/asana_api.py inbox-cleanup --comment-research-todos --apply
 ```
 
-Use `inbox-cleanup` when the question is "please sort my My Tasks intake into review states".
-Treat it as a personal PM workflow rather than a filing pass: it should classify tasks, propose next actions, surface `active_ai_action`, and only write comments when the privacy and confidence rules support it.
+Use `inbox-cleanup` when the question is "clean up my My Tasks intake and tell me what each task actually needs".
+Treat it as a personal PM workflow rather than a filing pass: it should determine the task read first, explain why each task belongs in its bucket, propose a concrete next action, surface `ask_user`, `ai_help_now`, and `active_ai_action`, and only then move the task when the classification is clear.
 
 Full spec:
 

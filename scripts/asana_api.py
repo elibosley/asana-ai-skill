@@ -1109,9 +1109,13 @@ def manager_plan_comment_html(
     *,
     category_label: str,
     work_type: str,
+    task_read: str,
+    classification_basis: str,
     next_action: str,
     todo_label: str,
     todo_items: list[str],
+    ask_user: str,
+    ai_help_summary: str,
     execution_prompt: str | None,
 ) -> str:
     sections: list[tuple[str | None, str, str | list[str]]] = [
@@ -1122,8 +1126,12 @@ def manager_plan_comment_html(
         ),
         ("<strong>Review state:</strong>", "scalar", category_label),
         ("<strong>Work type:</strong>", "scalar", work_type),
+        ("<strong>Task read:</strong>", "scalar", task_read),
+        ("<strong>Why this bucket:</strong>", "scalar", classification_basis),
         ("<strong>Suggested next action:</strong>", "scalar", next_action),
         (f"<strong>{html.escape(todo_label)}:</strong>", "list", todo_items),
+        ("<strong>Ask before acting:</strong>", "scalar", ask_user),
+        ("<strong>How AI can help:</strong>", "scalar", ai_help_summary),
     ]
     if execution_prompt:
         sections.append(("<strong>Execution option:</strong>", "scalar", execution_prompt))
@@ -1208,7 +1216,54 @@ def extract_github_pr_links(text: str) -> list[dict[str, str]]:
                 "pr_number": pr_number,
             }
         )
+    seen_pr_numbers = {str(link.get("pr_number") or "").strip() for link in links}
+    for match in re.finditer(r"\bPR\s*#(\d+)\b", text, flags=re.IGNORECASE):
+        pr_number = match.group(1)
+        if pr_number in seen_pr_numbers:
+            continue
+        links.append(
+            {
+                "url": "",
+                "owner": "",
+                "repo": "",
+                "pr_number": pr_number,
+            }
+        )
+        seen_pr_numbers.add(pr_number)
     return links
+
+
+def normalize_whitespace(value: str | None) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def shorten_text(value: str | None, *, limit: int = 180) -> str:
+    token = normalize_whitespace(value)
+    if len(token) <= limit:
+        return token
+    return f"{token[: max(0, limit - 3)].rstrip()}..."
+
+
+def primary_pr_label(linked_prs: list[dict[str, str]]) -> str | None:
+    if not linked_prs:
+        return None
+    pr_number = str((linked_prs[0] or {}).get("pr_number") or "").strip()
+    if not pr_number:
+        return None
+    return f"PR #{pr_number}"
+
+
+def task_title_kind(name: str, combined_text: str) -> str:
+    source = f"{name} {combined_text}".casefold()
+    if re.search(r"\b(decide|decision|clarify|validate|scope|define|recommend)\b", source):
+        return "decision"
+    if re.search(r"\b(draft|memo|write[\s-]?up|writeup)\b", source):
+        return "writing"
+    if re.search(r"\b(wireframe|mockup|design)\b", source):
+        return "design"
+    if re.search(r"\b(follow up|follow-up|intro|call|meeting|contact|email)\b", source):
+        return "follow_up"
+    return "general"
 
 
 def active_ai_action_for_task(
@@ -1220,12 +1275,16 @@ def active_ai_action_for_task(
     waiting_signal: bool,
     negative_signal: bool,
     linked_prs: list[dict[str, str]],
-    manager_comment_allowed: bool,
 ) -> dict[str, Any]:
     if ready_signal and category_key == "ready_to_close":
         return {
             "action": "ask_to_close",
             "reason": "Recent comments indicate this is likely fixed and ready for manual close-out.",
+        }
+    if verify_signal and category_key == "needs_verification" and not negative_signal:
+        return {
+            "action": "ask_to_verify",
+            "reason": "This looks like verification/QA follow-up rather than net-new work.",
         }
     if linked_prs and work_type in {"implementation", "bug", "research"}:
         return {
@@ -1242,10 +1301,10 @@ def active_ai_action_for_task(
             "action": "ask_to_follow_up",
             "reason": "This looks blocked on another person or team and needs a targeted follow-up.",
         }
-    if manager_comment_allowed and work_type in {"research", "implementation", "bug"}:
+    if category_key == "needs_next_action" and work_type in {"research", "implementation", "bug"}:
         return {
             "action": "ask_to_execute_now",
-            "reason": "This looks actionable and private enough for the AI to try solving after asking.",
+            "reason": "This still looks open-ended, but it is concrete enough for the AI to take a first pass after confirmation.",
         }
     return {
         "action": "no_ai_action",
@@ -1262,7 +1321,7 @@ def infer_execution_candidate(
     if category_key in {"waiting_on_others", "backlog_cleanup"}:
         return False, None
     if work_type in {"implementation", "bug", "research"} and re.search(
-        r"\b(pr\b|github|preview|branch|webgui|api|plugin|repo|account app|automation|endpoint|beta|test)\b",
+        r"\b(pr\b|github|preview|branch|webgui|api|plugin|repo|account app|automation|endpoint|beta|test|memo|draft|clarify|validate|decide|scope|recommendation|doc|document|spec)\b",
         combined_text,
     ):
         return True, "Ask whether I should investigate or execute this task now, and I can try to solve it end-to-end."
@@ -1271,32 +1330,127 @@ def infer_execution_candidate(
 
 def manager_plan_for_task(
     *,
+    name: str,
     work_type: str,
     category_key: str,
     task: dict[str, Any],
     combined_text: str,
     reasons: list[str],
     recent_comment_lines: list[str],
+    linked_prs: list[dict[str, str]],
+    ready_signal: bool,
+    verify_signal: bool,
+    waiting_signal: bool,
+    negative_signal: bool,
 ) -> dict[str, Any]:
-    name = str(task.get("name") or "")
+    name = str(name or task.get("name") or "")
     due_on = task.get("due_on")
+    pr_label = primary_pr_label(linked_prs)
+    kind = task_title_kind(name, combined_text)
+    project_state = ""
+    if reasons:
+        first_reason = str(reasons[0])
+        if first_reason.startswith("Project state: "):
+            project_state = first_reason.removeprefix("Project state: ").strip()
+    comment_excerpt = shorten_text(recent_comment_lines[0] if recent_comment_lines else "", limit=160)
+    task_read = ""
+    classification_basis = ""
     todo_label = "Suggested TODO"
     next_action = "Review the task and decide the concrete next owner/action."
+    ask_user = "Should this stay active right now, or should it be parked until there is a concrete next step?"
+    ai_help_summary = "This needs your prioritization more than immediate AI action."
     todo_items: list[str] = []
 
-    if work_type == "research":
-        todo_label = "Research TODO"
-        next_action = "Turn this from an open-ended research item into a short written recommendation with a clear owner and follow-up."
+    if category_key == "ready_to_close":
+        task_read = "This looks substantially done already and is behaving more like close-out than active execution work."
+        if project_state:
+            task_read = f"{task_read} Project state already reads as `{project_state}`."
+        if comment_excerpt:
+            task_read = f"{task_read} Latest signal: {comment_excerpt}"
+        classification_basis = "Recent comments plus project-state context both point toward close-out."
+        next_action = "Do one final verification pass, then close it or reopen it with the exact remaining issue."
+        todo_label = "Close-Out TODO"
         todo_items = [
-            "Read the task description, linked docs, PRs, and the latest comments.",
-            "Write a 3-5 bullet summary of the current state and what is still unknown.",
-            "List the specific decision this research should unblock.",
-            "Recommend one next action, one owner, and one target date.",
+            "Check the latest build, preview, or shipped state one more time.",
+            "Capture one clear pass/fail note so the task does not stay in limbo.",
+            "If it passes, post the close-out note and mark it complete.",
+            "If it fails, reopen it with the exact remaining repro or gap.",
         ]
+        ask_user = "Do you want me to draft the close-out note after a quick verification read?"
+        ai_help_summary = "I can review the latest context and draft the close-out note or the reopen summary."
+    elif category_key == "needs_verification":
+        verification_target = pr_label or "the latest claimed fix"
+        if project_state:
+            task_read = f"This no longer looks like fresh implementation work. It looks like verification against `{project_state}`"
+        else:
+            task_read = "This no longer looks like fresh implementation work. It looks like verification against the latest claimed fix"
+        if pr_label:
+            task_read = f"{task_read} and {pr_label}."
+        else:
+            task_read = f"{task_read}."
+        if comment_excerpt:
+            task_read = f"{task_read} Latest signal: {comment_excerpt}"
+        classification_basis = "Verification language or done-like workflow state outweighed net-new implementation signals."
+        next_action = f"Verify {verification_target} on the latest relevant environment and decide between close-out and a new implementation step."
+        todo_label = "Verification TODO"
+        todo_items = [
+            "Collect the exact build, branch, or environment you should test against.",
+            f"Verify {verification_target} and record what passed or failed.",
+            "If it passes, move it toward close-out with evidence.",
+            "If it fails, write the smallest remaining gap as the new implementation step.",
+        ]
+        ask_user = "Do you want me to run the verification pass now, or just leave this staged in verification?"
+        ai_help_summary = "I can verify the latest change, summarize pass/fail evidence, and recommend close-out versus reopen."
+    elif category_key == "waiting_on_others" or waiting_signal:
+        task_read = "This looks blocked on another person, team, or external dependency rather than blocked on your own implementation work."
+        if comment_excerpt:
+            task_read = f"{task_read} Latest signal: {comment_excerpt}"
+        classification_basis = "The strongest signal here is dependency-follow-up, not independent execution."
+        todo_label = "Coordination TODO"
+        next_action = "Send one concrete unblock message, make the ask explicit, and record the expected reply or handoff date."
+        todo_items = [
+            "Identify the exact person or team who needs to respond.",
+            "State the concrete ask, not just a status nudge.",
+            "Record the expected reply date or next checkpoint in the task.",
+            "Move it back to execution only after the dependency clears.",
+        ]
+        ask_user = "Who should be nudged here, and do you want me to draft the exact follow-up message?"
+        ai_help_summary = "I can draft the unblock message or task comment for you."
+    elif work_type == "research":
+        todo_label = "Research TODO"
+        if kind == "writing":
+            task_read = "This is a writing/recommendation task, not a vague research placeholder. The real missing artifact is the first draft."
+            next_action = "Write the first draft now, then call out the recommendation, open questions, and owner."
+            todo_items = [
+                "Write the exact question this memo or write-up needs to answer.",
+                "Draft the recommendation or narrative directly in the task or linked doc.",
+                "Call out what is still unknown or needs sign-off.",
+                "Name the next reviewer or owner so it does not stall after drafting.",
+            ]
+            ask_user = "Do you want me to draft the first version now, or should this remain a placeholder?"
+            ai_help_summary = "I can draft the memo or recommendation from the current task context."
+        else:
+            task_read = "This is a decision/research task. The missing deliverable is a short recommendation that turns the open question into a call to action."
+            next_action = "Turn this into a short written recommendation with a clear decision owner and follow-up."
+            todo_items = [
+                "Read the task description, linked docs, PRs, and the latest comments.",
+                "Write a 3-5 bullet summary of the current state and what is still unknown.",
+                "List the specific decision this research should unblock.",
+                "Recommend one next action, one owner, and one target date.",
+            ]
+            ask_user = "Do you want me to turn this into a recommendation now, or is this waiting on human discussion first?"
+            ai_help_summary = "I can synthesize the current context into a recommendation and next-step note."
+        classification_basis = "Research-style language points to a recommendation artifact, not just another round of vague investigation."
         if re.search(r"\b(spreadsheet|sheet|docs.google.com|document|spec)\b", combined_text):
             todo_items.insert(1, "Review the linked document/spreadsheet and capture the key takeaways in the task.")
     elif work_type == "bug":
         todo_label = "Bug TODO"
+        task_read = "This is still a bug triage task. The useful outcome is not more discussion; it is either a confirmed repro or a confirmed fix."
+        if pr_label:
+            task_read = f"{task_read} There is already a concrete code signal via {pr_label}."
+        if negative_signal:
+            task_read = f"{task_read} Recent context also suggests the issue may still be failing."
+        classification_basis = "Bug language is the dominant signal, so the task should drive toward repro-versus-fixed, not vague planning."
         next_action = "Confirm whether this is still reproducible, then either close it as fixed or create the smallest remaining implementation step."
         todo_items = [
             "Collect the latest repro details, version, and any screenshots or logs.",
@@ -1304,17 +1458,52 @@ def manager_plan_for_task(
             "If fixed, comment with evidence and ask for close-out.",
             "If not fixed, define the smallest next engineering step and owner.",
         ]
+        ask_user = "Do you want me to investigate this now and come back with either a narrowed repro or the smallest next fix?"
+        ai_help_summary = "I can narrow the repro path or draft the concrete remaining fix step."
     elif work_type == "implementation":
         todo_label = "Implementation TODO"
-        next_action = "Reduce this to one concrete shipping step instead of leaving it as a broad open task."
-        todo_items = [
-            "Confirm the exact deliverable for this task.",
-            "Link the active PR, branch, or code area if one exists.",
-            "Define the next testable milestone.",
-            "Move it to verification once that milestone is shipped.",
-        ]
+        if kind == "decision":
+            task_read = "This is not really implementation yet. It is a scoping or decision task that still needs a concrete recommendation before code can move cleanly."
+            next_action = "Write the scoped recommendation, name the owner, and define the first testable milestone that would follow from that decision."
+            todo_items = [
+                "Write the exact decision or scope question in one sentence.",
+                "List the constraints or options that matter.",
+                "Recommend one direction instead of leaving it open-ended.",
+                "Define the first milestone that would start once the decision is accepted.",
+            ]
+            ask_user = "Do you want me to draft the recommendation now, or is this waiting on discussion first?"
+            ai_help_summary = "I can draft the recommendation and reduce this to a shippable first milestone."
+        elif kind == "writing":
+            task_read = "This is really a writing/output task hiding inside implementation. The missing artifact is a concrete document, not another placeholder."
+            next_action = "Draft the output, then move the task into review or verification once the first pass exists."
+            todo_items = [
+                "Define the output artifact this task is supposed to produce.",
+                "Draft the first pass instead of keeping the task broad.",
+                "Link the draft or working area back into the task.",
+                "Move it to review once there is something testable or reviewable.",
+            ]
+            ask_user = "Do you want me to produce the first draft now?"
+            ai_help_summary = "I can create the first pass so this stops being a placeholder."
+        else:
+            task_read = "This is an implementation task, but it is still too broad to drive execution cleanly from the task as written."
+            if pr_label:
+                task_read = f"{task_read} There is already a code signal via {pr_label}, so the best next move is to define the next testable milestone."
+            classification_basis = "Implementation signals are present, but the task still needs a smaller, more testable milestone."
+            next_action = "Reduce this to one concrete shipping step instead of leaving it as a broad open task."
+            todo_items = [
+                "Confirm the exact deliverable for this task.",
+                "Link the active PR, branch, or code area if one exists.",
+                "Define the next testable milestone.",
+                "Move it to verification once that milestone is shipped.",
+            ]
+            ask_user = "Do you want me to turn this into a concrete first milestone now?"
+            ai_help_summary = "I can define the first milestone and, if there is code context, push it forward."
+        if not classification_basis:
+            classification_basis = "The title and recent context still read as open implementation work, but not yet as a crisp milestone."
     elif work_type == "coordination":
         todo_label = "Coordination TODO"
+        task_read = "This is primarily a coordination task. The value comes from creating movement with one clear ask, not from doing more solo work."
+        classification_basis = "The strongest signal is handoff/follow-up language instead of implementation details."
         next_action = "Push the external dependency forward with one specific follow-up."
         todo_items = [
             "Identify the external person or team currently blocking progress.",
@@ -1322,14 +1511,25 @@ def manager_plan_for_task(
             "Record the expected reply date or handoff date in the task.",
             "Move back to execution once the dependency clears.",
         ]
+        ask_user = "Who should receive the follow-up, and do you want me to draft it?"
+        ai_help_summary = "I can draft the follow-up or summarize the current ask."
     else:
         todo_label = "Admin TODO"
+        task_read = "This reads more like a reminder or admin placeholder than meaningful engineering work."
+        classification_basis = "The task does not currently contain enough execution substance to justify active focus."
         next_action = "Either schedule the work or move it out of active My Tasks if it is not actionable this cycle."
         todo_items = [
             "Decide whether this belongs in active My Tasks right now.",
             "If yes, assign a date or next checkpoint.",
             "If no, move it to backlog or an appropriate holding section.",
         ]
+        ask_user = "Should this stay in your active queue, or should it be parked in a holding section?"
+        ai_help_summary = "I can help re-scope or re-file it, but it does not look like a good execution target."
+
+    if not task_read:
+        task_read = "This task needs a clearer definition before it can drive execution."
+    if not classification_basis:
+        classification_basis = "The current signals are mixed, so the safest move is to define the next concrete owner/action."
 
     if due_on:
         todo_items.append(f"Check whether the due date `{due_on}` still makes sense.")
@@ -1346,9 +1546,14 @@ def manager_plan_for_task(
 
     return {
         "work_type": work_type,
+        "task_read": task_read,
+        "classification_basis": classification_basis,
         "next_action": next_action,
         "todo_label": todo_label,
         "todo_items": todo_items[:6],
+        "ask_user": ask_user,
+        "ai_help_now": category_key != "backlog_cleanup",
+        "ai_help_summary": ai_help_summary,
         "execution_candidate": execution_candidate,
         "execution_prompt": execution_prompt,
     }
@@ -1447,12 +1652,18 @@ def classify_inbox_cleanup_task(task_context: dict[str, Any], now: datetime) -> 
         category_key = "needs_next_action"
 
     manager_plan = manager_plan_for_task(
+        name=name,
         work_type=work_type,
         category_key=category_key,
         task=task,
         combined_text=combined_text,
         reasons=reasons,
         recent_comment_lines=recent_comment_lines,
+        linked_prs=linked_prs,
+        ready_signal=ready_signal,
+        verify_signal=verify_signal,
+        waiting_signal=waiting_signal,
+        negative_signal=negative_signal,
     )
     manager_comment_allowed = (
         not shared_for_manager_comments
@@ -1467,7 +1678,6 @@ def classify_inbox_cleanup_task(task_context: dict[str, Any], now: datetime) -> 
         waiting_signal=waiting_signal,
         negative_signal=negative_signal,
         linked_prs=linked_prs,
-        manager_comment_allowed=manager_comment_allowed,
     )
 
     return {
@@ -3799,9 +4009,13 @@ def build_inbox_cleanup_payload(args: argparse.Namespace) -> Any:
                         "html_text": manager_plan_comment_html(
                             category_label=target_section_name,
                             work_type=classification["work_type"],
+                            task_read=manager_plan["task_read"],
+                            classification_basis=manager_plan["classification_basis"],
                             next_action=manager_plan["next_action"],
                             todo_label=manager_plan["todo_label"],
                             todo_items=manager_plan["todo_items"],
+                            ask_user=manager_plan["ask_user"],
+                            ai_help_summary=manager_plan["ai_help_summary"],
                             execution_prompt=manager_plan.get("execution_prompt"),
                         )
                     }
@@ -3823,6 +4037,11 @@ def build_inbox_cleanup_payload(args: argparse.Namespace) -> Any:
                 "linked_prs": classification["linked_prs"],
                 "active_ai_action": classification["active_ai_action"],
                 "manager_plan": manager_plan,
+                "task_read": manager_plan["task_read"],
+                "classification_basis": manager_plan["classification_basis"],
+                "ask_user": manager_plan["ask_user"],
+                "ai_help_now": manager_plan["ai_help_now"],
+                "ai_help_summary": manager_plan["ai_help_summary"],
                 "manager_comment_allowed": manager_comment_allowed,
                 "manager_comment_block_reason": manager_comment_block_reason,
                 "move_applied": bool(move_result),
@@ -3935,6 +4154,7 @@ def daily_briefing_item(task_result: dict[str, Any]) -> dict[str, Any]:
         "due_date": daily_briefing_due_date(task_result),
         "pr": daily_briefing_primary_pr(task_result),
         "linked_prs": task_result.get("linked_prs", []) or [],
+        "task_read": task_result.get("task_read"),
         "next_action": ((task_result.get("manager_plan") or {}).get("next_action")),
         "active_ai_action": task_result.get("active_ai_action") or {},
         "task_result": task_result,
@@ -3971,8 +4191,6 @@ def daily_briefing_bucket_score(bucket_name: str, task_result: dict[str, Any]) -
 
 def daily_briefing_bucket_key(task_result: dict[str, Any]) -> str:
     action = str(((task_result.get("active_ai_action") or {}).get("action")) or "no_ai_action")
-    execution_candidate = bool(((task_result.get("manager_plan") or {}).get("execution_candidate")))
-    has_code_signal = execution_candidate or bool(task_result.get("linked_prs"))
 
     if daily_briefing_is_background_noise(task_result):
         return "background"
@@ -3984,12 +4202,14 @@ def daily_briefing_bucket_key(task_result: dict[str, Any]) -> str:
         return "release_watch"
     if action == "ask_to_verify":
         return "needs_verification"
-    if action == "ask_to_execute_now" and has_code_signal and not daily_briefing_done_like(task_result):
+    if action == "ask_to_execute_now" and not daily_briefing_done_like(task_result):
         return "execute_now"
     return "background"
 
 
 def daily_briefing_action_summary(bucket_name: str, item: dict[str, Any]) -> str:
+    if item.get("task_read"):
+        return str(item["task_read"])
     if bucket_name == "execute_now":
         if item.get("pr"):
             return "Real execution signal detected; this looks like active code work."
