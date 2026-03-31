@@ -207,7 +207,7 @@ If a task is clearly not part of today's command center, use:
 
 Good `why` examples:
 
-- “This has a concrete staging validation step and should be cleared before new implementation.”
+- “This has a concrete preview validation step and should be cleared before new implementation.”
 - “This blocks another thread and needs one follow-up before it can move.”
 - “This looks effectively done and only needs a final close-out pass.”
 
@@ -258,18 +258,18 @@ Markdown is the preferred human-facing mode.
   "tasks": [
     {
       "task_gid": "456",
-      "name": "Verify PR #2593 on staging",
+      "name": "Verify PR #4242 in preview",
       "decision": "highlight",
       "bucket_slug": "execute-now",
       "confidence": "high",
       "why": "This has a concrete verification step and should be cleared before new implementation starts.",
-      "next_action": "Run the staging verification pass now.",
+      "next_action": "Run the preview verification pass now.",
       "question": "",
       "notes": ""
     },
     {
       "task_gid": "789",
-      "name": "Decide CRA customer communication",
+      "name": "Decide policy rollout communication",
       "decision": "ask_user",
       "bucket_slug": "",
       "confidence": "low",

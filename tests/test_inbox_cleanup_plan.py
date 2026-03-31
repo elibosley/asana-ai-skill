@@ -30,12 +30,12 @@ class InboxCleanupPlanTests(unittest.TestCase):
             "tasks": [
                 {
                     "task_gid": "task-1",
-                    "name": "Clarify CRA reporting",
+                    "name": "Clarify policy reporting",
                     "permalink_url": "https://app.asana.com/1/2/3",
                     "current_section": "Recently assigned",
                     "target_section": "Review: Needs Next Action",
                     "category_key": "needs_next_action",
-                    "reasons": ["Project state: CRA :: Decide"],
+                    "reasons": ["Project state: Policy :: Decide"],
                     "linked_prs": [],
                     "task_read": "This is a scoping or decision task.",
                     "classification_basis": "The task still needs a concrete recommendation.",
@@ -96,7 +96,7 @@ class InboxCleanupPlanTests(unittest.TestCase):
                     "decision": "ask_user",
                     "category_slug": "",
                     "confidence": "low",
-                    "why": "Need Eli to decide the direction.",
+                    "why": "Need the owner to decide the direction.",
                     "question": "Should this become active now?",
                 },
                 {

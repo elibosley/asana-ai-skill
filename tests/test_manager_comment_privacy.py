@@ -16,8 +16,8 @@ SPEC.loader.exec_module(ASANA_API)
 class ManagerCommentPrivacyTests(unittest.TestCase):
     def test_private_task_with_only_assignee_activity_is_not_shared(self) -> None:
         task = {
-            "assignee": {"gid": "user-1", "name": "Eli"},
-            "followers": [{"gid": "user-1", "name": "Eli"}],
+            "assignee": {"gid": "user-1", "name": "Alex"},
+            "followers": [{"gid": "user-1", "name": "Alex"}],
             "collaborators": [],
             "projects": [],
             "memberships": [],
@@ -26,7 +26,7 @@ class ManagerCommentPrivacyTests(unittest.TestCase):
         stories = [
             {
                 "type": "comment",
-                "created_by": {"gid": "user-1", "name": "Eli"},
+                "created_by": {"gid": "user-1", "name": "Alex"},
                 "text": "My own note",
             }
         ]
@@ -38,8 +38,8 @@ class ManagerCommentPrivacyTests(unittest.TestCase):
 
     def test_task_with_non_assignee_commenter_is_shared(self) -> None:
         task = {
-            "assignee": {"gid": "user-1", "name": "Eli"},
-            "followers": [{"gid": "user-1", "name": "Eli"}],
+            "assignee": {"gid": "user-1", "name": "Alex"},
+            "followers": [{"gid": "user-1", "name": "Alex"}],
             "collaborators": [],
             "projects": [],
             "memberships": [],
@@ -48,7 +48,7 @@ class ManagerCommentPrivacyTests(unittest.TestCase):
         stories = [
             {
                 "type": "comment",
-                "created_by": {"gid": "user-2", "name": "Tiffany"},
+                "created_by": {"gid": "user-2", "name": "Jamie"},
                 "text": "Looks good to me",
             }
         ]
@@ -60,10 +60,10 @@ class ManagerCommentPrivacyTests(unittest.TestCase):
 
     def test_task_with_non_assignee_follower_is_shared(self) -> None:
         task = {
-            "assignee": {"gid": "user-1", "name": "Eli"},
+            "assignee": {"gid": "user-1", "name": "Alex"},
             "followers": [
-                {"gid": "user-1", "name": "Eli"},
-                {"gid": "user-2", "name": "Spencer"},
+                {"gid": "user-1", "name": "Alex"},
+                {"gid": "user-2", "name": "Morgan"},
             ],
             "collaborators": [],
             "projects": [],
@@ -78,8 +78,8 @@ class ManagerCommentPrivacyTests(unittest.TestCase):
 
     def test_task_with_project_context_is_shared_even_without_other_people(self) -> None:
         task = {
-            "assignee": {"gid": "user-1", "name": "Eli"},
-            "followers": [{"gid": "user-1", "name": "Eli"}],
+            "assignee": {"gid": "user-1", "name": "Alex"},
+            "followers": [{"gid": "user-1", "name": "Alex"}],
             "collaborators": [],
             "projects": [{"gid": "project-1", "name": "Shared Project"}],
             "memberships": [{"project": {"gid": "project-1", "name": "Shared Project"}, "section": {"gid": "section-1", "name": "Todo"}}],

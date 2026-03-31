@@ -267,7 +267,7 @@ When `--apply` is passed:
   "tasks": [
     {
       "task_gid": "456",
-      "name": "Verify PR #2593 on staging",
+      "name": "Verify PR #4242 in preview",
       "decision": "bucket",
       "category_slug": "release-watch",
       "target_section_name": "Release / Ship Watch",
@@ -278,7 +278,7 @@ When `--apply` is passed:
     },
     {
       "task_gid": "789",
-      "name": "Decide CRA customer communication",
+      "name": "Decide policy rollout communication",
       "decision": "ask_user",
       "category_slug": "urgent-decisions",
       "target_section_name": "",
