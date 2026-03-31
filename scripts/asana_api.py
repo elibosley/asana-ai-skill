@@ -50,7 +50,89 @@ INBOX_CLEANUP_REVIEW_SECTIONS = {
     "needs_next_action": "Review: Needs Next Action",
     "backlog_cleanup": "Review: Backlog Cleanup",
 }
+INBOX_CLEANUP_SNAPSHOT_WORKFLOW = "asana_inbox_cleanup_snapshot"
+INBOX_CLEANUP_PLAN_WORKFLOW = "asana_inbox_cleanup_plan"
+INBOX_CLEANUP_PLAN_VERSION = 1
+INBOX_CLEANUP_CATEGORY_SEEDS = [
+    {
+        "slug": "execute_now",
+        "name": "Execute Now",
+        "description": "Tasks that should actively drive work today or this week.",
+        "suggested_section_name": "WIP",
+    },
+    {
+        "slug": "needs_verification",
+        "name": "Needs Verification",
+        "description": "Tasks that look implemented and need QA, close-out, or release tracking.",
+        "suggested_section_name": "Review: Needs Verification",
+    },
+    {
+        "slug": "waiting_on_others",
+        "name": "Waiting On Others",
+        "description": "Tasks blocked on another person, team, or external dependency.",
+        "suggested_section_name": "Review: Waiting On Others",
+    },
+    {
+        "slug": "likely_ready_to_close",
+        "name": "Likely Ready To Close",
+        "description": "Tasks that likely only need a final confirmation and close-out.",
+        "suggested_section_name": "Review: Likely Ready To Close",
+    },
+    {
+        "slug": "backlog_or_not_now",
+        "name": "Backlog / Not Now",
+        "description": "Tasks that should stay visible but should not drive the current work cycle.",
+        "suggested_section_name": "Review: Backlog Cleanup",
+    },
+    {
+        "slug": "needs_user_input",
+        "name": "Needs User Input",
+        "description": "Tasks the AI should not auto-bucket until the user answers a specific question.",
+        "suggested_section_name": "",
+    },
+]
 DEFAULT_INBOX_CLEANUP_SOURCE_SECTIONS = ("Recently assigned",)
+DAILY_BRIEFING_SNAPSHOT_WORKFLOW = "asana_daily_briefing_snapshot"
+DAILY_BRIEFING_PLAN_WORKFLOW = "asana_daily_briefing_plan"
+DAILY_BRIEFING_PLAN_VERSION = 1
+DAILY_BRIEFING_BUCKET_SEEDS = [
+    {
+        "slug": "execute-now",
+        "name": "Execute Now",
+        "description": "Tasks the AI believes are the best candidates for active work today.",
+        "display_order": 1,
+    },
+    {
+        "slug": "release-watch",
+        "name": "Release / Ship Watch",
+        "description": "Tasks that need rollout watching, shipping awareness, or post-implementation monitoring.",
+        "display_order": 2,
+    },
+    {
+        "slug": "needs-verification",
+        "name": "Needs Verification",
+        "description": "Tasks where the next move is checking, QA, or validating output.",
+        "display_order": 3,
+    },
+    {
+        "slug": "needs-follow-up",
+        "name": "Needs Follow-Up",
+        "description": "Tasks that need a response, unblock, or external coordination step.",
+        "display_order": 4,
+    },
+    {
+        "slug": "ready-to-close",
+        "name": "Likely Ready To Close",
+        "description": "Tasks that appear effectively done and need final confirmation or close-out.",
+        "display_order": 5,
+    },
+    {
+        "slug": "background",
+        "name": "Background / Not Today",
+        "description": "Tasks that should stay visible but should not drive today's work.",
+        "display_order": 6,
+    },
+]
 DAILY_BRIEFING_DONE_LIKE_PATTERN = re.compile(
     r"\b(done|test|testing|staging|qa|production|complete|completed|released|shipped)\b",
     re.IGNORECASE,
@@ -1109,9 +1191,13 @@ def manager_plan_comment_html(
     *,
     category_label: str,
     work_type: str,
+    task_read: str,
+    classification_basis: str,
     next_action: str,
     todo_label: str,
     todo_items: list[str],
+    ask_user: str,
+    ai_help_summary: str,
     execution_prompt: str | None,
 ) -> str:
     sections: list[tuple[str | None, str, str | list[str]]] = [
@@ -1122,8 +1208,12 @@ def manager_plan_comment_html(
         ),
         ("<strong>Review state:</strong>", "scalar", category_label),
         ("<strong>Work type:</strong>", "scalar", work_type),
+        ("<strong>Task read:</strong>", "scalar", task_read),
+        ("<strong>Why this bucket:</strong>", "scalar", classification_basis),
         ("<strong>Suggested next action:</strong>", "scalar", next_action),
         (f"<strong>{html.escape(todo_label)}:</strong>", "list", todo_items),
+        ("<strong>Ask before acting:</strong>", "scalar", ask_user),
+        ("<strong>How AI can help:</strong>", "scalar", ai_help_summary),
     ]
     if execution_prompt:
         sections.append(("<strong>Execution option:</strong>", "scalar", execution_prompt))
@@ -1208,7 +1298,54 @@ def extract_github_pr_links(text: str) -> list[dict[str, str]]:
                 "pr_number": pr_number,
             }
         )
+    seen_pr_numbers = {str(link.get("pr_number") or "").strip() for link in links}
+    for match in re.finditer(r"\bPR\s*#(\d+)\b", text, flags=re.IGNORECASE):
+        pr_number = match.group(1)
+        if pr_number in seen_pr_numbers:
+            continue
+        links.append(
+            {
+                "url": "",
+                "owner": "",
+                "repo": "",
+                "pr_number": pr_number,
+            }
+        )
+        seen_pr_numbers.add(pr_number)
     return links
+
+
+def normalize_whitespace(value: str | None) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def shorten_text(value: str | None, *, limit: int = 180) -> str:
+    token = normalize_whitespace(value)
+    if len(token) <= limit:
+        return token
+    return f"{token[: max(0, limit - 3)].rstrip()}..."
+
+
+def primary_pr_label(linked_prs: list[dict[str, str]]) -> str | None:
+    if not linked_prs:
+        return None
+    pr_number = str((linked_prs[0] or {}).get("pr_number") or "").strip()
+    if not pr_number:
+        return None
+    return f"PR #{pr_number}"
+
+
+def task_title_kind(name: str, combined_text: str) -> str:
+    source = f"{name} {combined_text}".casefold()
+    if re.search(r"\b(decide|decision|clarify|validate|scope|define|recommend)\b", source):
+        return "decision"
+    if re.search(r"\b(draft|memo|write[\s-]?up|writeup)\b", source):
+        return "writing"
+    if re.search(r"\b(wireframe|mockup|design)\b", source):
+        return "design"
+    if re.search(r"\b(follow up|follow-up|intro|call|meeting|contact|email)\b", source):
+        return "follow_up"
+    return "general"
 
 
 def active_ai_action_for_task(
@@ -1220,12 +1357,16 @@ def active_ai_action_for_task(
     waiting_signal: bool,
     negative_signal: bool,
     linked_prs: list[dict[str, str]],
-    manager_comment_allowed: bool,
 ) -> dict[str, Any]:
     if ready_signal and category_key == "ready_to_close":
         return {
             "action": "ask_to_close",
             "reason": "Recent comments indicate this is likely fixed and ready for manual close-out.",
+        }
+    if verify_signal and category_key == "needs_verification" and not negative_signal:
+        return {
+            "action": "ask_to_verify",
+            "reason": "This looks like verification/QA follow-up rather than net-new work.",
         }
     if linked_prs and work_type in {"implementation", "bug", "research"}:
         return {
@@ -1242,10 +1383,10 @@ def active_ai_action_for_task(
             "action": "ask_to_follow_up",
             "reason": "This looks blocked on another person or team and needs a targeted follow-up.",
         }
-    if manager_comment_allowed and work_type in {"research", "implementation", "bug"}:
+    if category_key == "needs_next_action" and work_type in {"research", "implementation", "bug"}:
         return {
             "action": "ask_to_execute_now",
-            "reason": "This looks actionable and private enough for the AI to try solving after asking.",
+            "reason": "This still looks open-ended, but it is concrete enough for the AI to take a first pass after confirmation.",
         }
     return {
         "action": "no_ai_action",
@@ -1262,7 +1403,7 @@ def infer_execution_candidate(
     if category_key in {"waiting_on_others", "backlog_cleanup"}:
         return False, None
     if work_type in {"implementation", "bug", "research"} and re.search(
-        r"\b(pr\b|github|preview|branch|webgui|api|plugin|repo|account app|automation|endpoint|beta|test)\b",
+        r"\b(pr\b|github|preview|branch|webgui|api|plugin|repo|account app|automation|endpoint|beta|test|memo|draft|clarify|validate|decide|scope|recommendation|doc|document|spec)\b",
         combined_text,
     ):
         return True, "Ask whether I should investigate or execute this task now, and I can try to solve it end-to-end."
@@ -1271,32 +1412,127 @@ def infer_execution_candidate(
 
 def manager_plan_for_task(
     *,
+    name: str,
     work_type: str,
     category_key: str,
     task: dict[str, Any],
     combined_text: str,
     reasons: list[str],
     recent_comment_lines: list[str],
+    linked_prs: list[dict[str, str]],
+    ready_signal: bool,
+    verify_signal: bool,
+    waiting_signal: bool,
+    negative_signal: bool,
 ) -> dict[str, Any]:
-    name = str(task.get("name") or "")
+    name = str(name or task.get("name") or "")
     due_on = task.get("due_on")
+    pr_label = primary_pr_label(linked_prs)
+    kind = task_title_kind(name, combined_text)
+    project_state = ""
+    if reasons:
+        first_reason = str(reasons[0])
+        if first_reason.startswith("Project state: "):
+            project_state = first_reason.removeprefix("Project state: ").strip()
+    comment_excerpt = shorten_text(recent_comment_lines[0] if recent_comment_lines else "", limit=160)
+    task_read = ""
+    classification_basis = ""
     todo_label = "Suggested TODO"
     next_action = "Review the task and decide the concrete next owner/action."
+    ask_user = "Should this stay active right now, or should it be parked until there is a concrete next step?"
+    ai_help_summary = "This needs your prioritization more than immediate AI action."
     todo_items: list[str] = []
 
-    if work_type == "research":
-        todo_label = "Research TODO"
-        next_action = "Turn this from an open-ended research item into a short written recommendation with a clear owner and follow-up."
+    if category_key == "ready_to_close":
+        task_read = "This looks substantially done already and is behaving more like close-out than active execution work."
+        if project_state:
+            task_read = f"{task_read} Project state already reads as `{project_state}`."
+        if comment_excerpt:
+            task_read = f"{task_read} Latest signal: {comment_excerpt}"
+        classification_basis = "Recent comments plus project-state context both point toward close-out."
+        next_action = "Do one final verification pass, then close it or reopen it with the exact remaining issue."
+        todo_label = "Close-Out TODO"
         todo_items = [
-            "Read the task description, linked docs, PRs, and the latest comments.",
-            "Write a 3-5 bullet summary of the current state and what is still unknown.",
-            "List the specific decision this research should unblock.",
-            "Recommend one next action, one owner, and one target date.",
+            "Check the latest build, preview, or shipped state one more time.",
+            "Capture one clear pass/fail note so the task does not stay in limbo.",
+            "If it passes, post the close-out note and mark it complete.",
+            "If it fails, reopen it with the exact remaining repro or gap.",
         ]
+        ask_user = "Do you want me to draft the close-out note after a quick verification read?"
+        ai_help_summary = "I can review the latest context and draft the close-out note or the reopen summary."
+    elif category_key == "needs_verification":
+        verification_target = pr_label or "the latest claimed fix"
+        if project_state:
+            task_read = f"This no longer looks like fresh implementation work. It looks like verification against `{project_state}`"
+        else:
+            task_read = "This no longer looks like fresh implementation work. It looks like verification against the latest claimed fix"
+        if pr_label:
+            task_read = f"{task_read} and {pr_label}."
+        else:
+            task_read = f"{task_read}."
+        if comment_excerpt:
+            task_read = f"{task_read} Latest signal: {comment_excerpt}"
+        classification_basis = "Verification language or done-like workflow state outweighed net-new implementation signals."
+        next_action = f"Verify {verification_target} on the latest relevant environment and decide between close-out and a new implementation step."
+        todo_label = "Verification TODO"
+        todo_items = [
+            "Collect the exact build, branch, or environment you should test against.",
+            f"Verify {verification_target} and record what passed or failed.",
+            "If it passes, move it toward close-out with evidence.",
+            "If it fails, write the smallest remaining gap as the new implementation step.",
+        ]
+        ask_user = "Do you want me to run the verification pass now, or just leave this staged in verification?"
+        ai_help_summary = "I can verify the latest change, summarize pass/fail evidence, and recommend close-out versus reopen."
+    elif category_key == "waiting_on_others" or waiting_signal:
+        task_read = "This looks blocked on another person, team, or external dependency rather than blocked on your own implementation work."
+        if comment_excerpt:
+            task_read = f"{task_read} Latest signal: {comment_excerpt}"
+        classification_basis = "The strongest signal here is dependency-follow-up, not independent execution."
+        todo_label = "Coordination TODO"
+        next_action = "Send one concrete unblock message, make the ask explicit, and record the expected reply or handoff date."
+        todo_items = [
+            "Identify the exact person or team who needs to respond.",
+            "State the concrete ask, not just a status nudge.",
+            "Record the expected reply date or next checkpoint in the task.",
+            "Move it back to execution only after the dependency clears.",
+        ]
+        ask_user = "Who should be nudged here, and do you want me to draft the exact follow-up message?"
+        ai_help_summary = "I can draft the unblock message or task comment for you."
+    elif work_type == "research":
+        todo_label = "Research TODO"
+        if kind == "writing":
+            task_read = "This is a writing/recommendation task, not a vague research placeholder. The real missing artifact is the first draft."
+            next_action = "Write the first draft now, then call out the recommendation, open questions, and owner."
+            todo_items = [
+                "Write the exact question this memo or write-up needs to answer.",
+                "Draft the recommendation or narrative directly in the task or linked doc.",
+                "Call out what is still unknown or needs sign-off.",
+                "Name the next reviewer or owner so it does not stall after drafting.",
+            ]
+            ask_user = "Do you want me to draft the first version now, or should this remain a placeholder?"
+            ai_help_summary = "I can draft the memo or recommendation from the current task context."
+        else:
+            task_read = "This is a decision/research task. The missing deliverable is a short recommendation that turns the open question into a call to action."
+            next_action = "Turn this into a short written recommendation with a clear decision owner and follow-up."
+            todo_items = [
+                "Read the task description, linked docs, PRs, and the latest comments.",
+                "Write a 3-5 bullet summary of the current state and what is still unknown.",
+                "List the specific decision this research should unblock.",
+                "Recommend one next action, one owner, and one target date.",
+            ]
+            ask_user = "Do you want me to turn this into a recommendation now, or is this waiting on human discussion first?"
+            ai_help_summary = "I can synthesize the current context into a recommendation and next-step note."
+        classification_basis = "Research-style language points to a recommendation artifact, not just another round of vague investigation."
         if re.search(r"\b(spreadsheet|sheet|docs.google.com|document|spec)\b", combined_text):
             todo_items.insert(1, "Review the linked document/spreadsheet and capture the key takeaways in the task.")
     elif work_type == "bug":
         todo_label = "Bug TODO"
+        task_read = "This is still a bug triage task. The useful outcome is not more discussion; it is either a confirmed repro or a confirmed fix."
+        if pr_label:
+            task_read = f"{task_read} There is already a concrete code signal via {pr_label}."
+        if negative_signal:
+            task_read = f"{task_read} Recent context also suggests the issue may still be failing."
+        classification_basis = "Bug language is the dominant signal, so the task should drive toward repro-versus-fixed, not vague planning."
         next_action = "Confirm whether this is still reproducible, then either close it as fixed or create the smallest remaining implementation step."
         todo_items = [
             "Collect the latest repro details, version, and any screenshots or logs.",
@@ -1304,17 +1540,52 @@ def manager_plan_for_task(
             "If fixed, comment with evidence and ask for close-out.",
             "If not fixed, define the smallest next engineering step and owner.",
         ]
+        ask_user = "Do you want me to investigate this now and come back with either a narrowed repro or the smallest next fix?"
+        ai_help_summary = "I can narrow the repro path or draft the concrete remaining fix step."
     elif work_type == "implementation":
         todo_label = "Implementation TODO"
-        next_action = "Reduce this to one concrete shipping step instead of leaving it as a broad open task."
-        todo_items = [
-            "Confirm the exact deliverable for this task.",
-            "Link the active PR, branch, or code area if one exists.",
-            "Define the next testable milestone.",
-            "Move it to verification once that milestone is shipped.",
-        ]
+        if kind == "decision":
+            task_read = "This is not really implementation yet. It is a scoping or decision task that still needs a concrete recommendation before code can move cleanly."
+            next_action = "Write the scoped recommendation, name the owner, and define the first testable milestone that would follow from that decision."
+            todo_items = [
+                "Write the exact decision or scope question in one sentence.",
+                "List the constraints or options that matter.",
+                "Recommend one direction instead of leaving it open-ended.",
+                "Define the first milestone that would start once the decision is accepted.",
+            ]
+            ask_user = "Do you want me to draft the recommendation now, or is this waiting on discussion first?"
+            ai_help_summary = "I can draft the recommendation and reduce this to a shippable first milestone."
+        elif kind == "writing":
+            task_read = "This is really a writing/output task hiding inside implementation. The missing artifact is a concrete document, not another placeholder."
+            next_action = "Draft the output, then move the task into review or verification once the first pass exists."
+            todo_items = [
+                "Define the output artifact this task is supposed to produce.",
+                "Draft the first pass instead of keeping the task broad.",
+                "Link the draft or working area back into the task.",
+                "Move it to review once there is something testable or reviewable.",
+            ]
+            ask_user = "Do you want me to produce the first draft now?"
+            ai_help_summary = "I can create the first pass so this stops being a placeholder."
+        else:
+            task_read = "This is an implementation task, but it is still too broad to drive execution cleanly from the task as written."
+            if pr_label:
+                task_read = f"{task_read} There is already a code signal via {pr_label}, so the best next move is to define the next testable milestone."
+            classification_basis = "Implementation signals are present, but the task still needs a smaller, more testable milestone."
+            next_action = "Reduce this to one concrete shipping step instead of leaving it as a broad open task."
+            todo_items = [
+                "Confirm the exact deliverable for this task.",
+                "Link the active PR, branch, or code area if one exists.",
+                "Define the next testable milestone.",
+                "Move it to verification once that milestone is shipped.",
+            ]
+            ask_user = "Do you want me to turn this into a concrete first milestone now?"
+            ai_help_summary = "I can define the first milestone and, if there is code context, push it forward."
+        if not classification_basis:
+            classification_basis = "The title and recent context still read as open implementation work, but not yet as a crisp milestone."
     elif work_type == "coordination":
         todo_label = "Coordination TODO"
+        task_read = "This is primarily a coordination task. The value comes from creating movement with one clear ask, not from doing more solo work."
+        classification_basis = "The strongest signal is handoff/follow-up language instead of implementation details."
         next_action = "Push the external dependency forward with one specific follow-up."
         todo_items = [
             "Identify the external person or team currently blocking progress.",
@@ -1322,14 +1593,25 @@ def manager_plan_for_task(
             "Record the expected reply date or handoff date in the task.",
             "Move back to execution once the dependency clears.",
         ]
+        ask_user = "Who should receive the follow-up, and do you want me to draft it?"
+        ai_help_summary = "I can draft the follow-up or summarize the current ask."
     else:
         todo_label = "Admin TODO"
+        task_read = "This reads more like a reminder or admin placeholder than meaningful engineering work."
+        classification_basis = "The task does not currently contain enough execution substance to justify active focus."
         next_action = "Either schedule the work or move it out of active My Tasks if it is not actionable this cycle."
         todo_items = [
             "Decide whether this belongs in active My Tasks right now.",
             "If yes, assign a date or next checkpoint.",
             "If no, move it to backlog or an appropriate holding section.",
         ]
+        ask_user = "Should this stay in your active queue, or should it be parked in a holding section?"
+        ai_help_summary = "I can help re-scope or re-file it, but it does not look like a good execution target."
+
+    if not task_read:
+        task_read = "This task needs a clearer definition before it can drive execution."
+    if not classification_basis:
+        classification_basis = "The current signals are mixed, so the safest move is to define the next concrete owner/action."
 
     if due_on:
         todo_items.append(f"Check whether the due date `{due_on}` still makes sense.")
@@ -1346,9 +1628,14 @@ def manager_plan_for_task(
 
     return {
         "work_type": work_type,
+        "task_read": task_read,
+        "classification_basis": classification_basis,
         "next_action": next_action,
         "todo_label": todo_label,
         "todo_items": todo_items[:6],
+        "ask_user": ask_user,
+        "ai_help_now": category_key != "backlog_cleanup",
+        "ai_help_summary": ai_help_summary,
         "execution_candidate": execution_candidate,
         "execution_prompt": execution_prompt,
     }
@@ -1447,12 +1734,18 @@ def classify_inbox_cleanup_task(task_context: dict[str, Any], now: datetime) -> 
         category_key = "needs_next_action"
 
     manager_plan = manager_plan_for_task(
+        name=name,
         work_type=work_type,
         category_key=category_key,
         task=task,
         combined_text=combined_text,
         reasons=reasons,
         recent_comment_lines=recent_comment_lines,
+        linked_prs=linked_prs,
+        ready_signal=ready_signal,
+        verify_signal=verify_signal,
+        waiting_signal=waiting_signal,
+        negative_signal=negative_signal,
     )
     manager_comment_allowed = (
         not shared_for_manager_comments
@@ -1467,7 +1760,6 @@ def classify_inbox_cleanup_task(task_context: dict[str, Any], now: datetime) -> 
         waiting_signal=waiting_signal,
         negative_signal=negative_signal,
         linked_prs=linked_prs,
-        manager_comment_allowed=manager_comment_allowed,
     )
 
     return {
@@ -1583,26 +1875,26 @@ def advertising_message_for_my_tasks(summary: dict[str, Any]) -> dict[str, Any]:
 
     recommendation = {
         "priority": "low",
-        "message": "My Tasks looks manageable. Use inbox cleanup when you want review buckets.",
+        "message": "My Tasks looks manageable. Use inbox cleanup when you want an AI-gated category plan for your tasks.",
         "command": "python3 scripts/asana_api.py inbox-cleanup",
     }
     if recently_assigned >= 50:
         recommendation = {
             "priority": "high",
             "message": f"My Tasks intake is large: {recently_assigned} tasks in Recently assigned and {open_count} open overall.",
-            "command": "python3 scripts/asana_api.py inbox-cleanup --apply",
+            "command": "python3 scripts/asana_api.py inbox-cleanup",
         }
     elif recently_assigned >= 15:
         recommendation = {
             "priority": "medium",
             "message": f"My Tasks intake is building up: {recently_assigned} tasks in Recently assigned.",
-            "command": "python3 scripts/asana_api.py inbox-cleanup --apply",
+            "command": "python3 scripts/asana_api.py inbox-cleanup",
         }
     elif review_count > 0:
         recommendation = {
             "priority": "low",
             "message": f"My Tasks already has {review_count} tasks in Review sections. Start with a morning command center before doing another cleanup pass.",
-            "command": "python3 scripts/asana_api.py daily-briefing --markdown",
+            "command": "python3 scripts/asana_api.py daily-briefing",
         }
     return recommendation
 
@@ -1610,16 +1902,20 @@ def advertising_message_for_my_tasks(summary: dict[str, Any]) -> dict[str, Any]:
 def skill_feature_highlights() -> list[dict[str, str]]:
     return [
         {
-            "command": "python3 scripts/asana_api.py inbox-cleanup --apply",
-            "use_when": "Work through My Tasks like a personal PM: classify the work, suggest next actions, and sort it into review states without completing tasks.",
+            "command": "python3 scripts/asana_api.py inbox-cleanup",
+            "use_when": "Generate an AI-gated cleanup snapshot and plan scaffold for My Tasks before any bucket moves happen.",
         },
         {
-            "command": "python3 scripts/asana_api.py inbox-cleanup --manager-comments",
-            "use_when": "Have the cleanup pass act more like a personal PM by drafting next-step comments on private My Tasks.",
+            "command": "python3 scripts/asana_api.py inbox-cleanup --plan-file /tmp/asana-inbox-plan.json --apply",
+            "use_when": "Apply an AI-authored cleanup plan after categories and bucket decisions have been reviewed.",
         },
         {
-            "command": "python3 scripts/asana_api.py daily-briefing --markdown",
-            "use_when": "Generate a full morning command center with task links, release-watch detection, and prioritized action buckets.",
+            "command": "python3 scripts/asana_api.py daily-briefing",
+            "use_when": "Run the AI-gated daily briefing workflow: generate the snapshot internally, auto-author the briefing plan, and only ask the user about truly ambiguous tasks.",
+        },
+        {
+            "command": "python3 scripts/asana_api.py daily-briefing --plan-file /tmp/asana-daily-briefing-plan.json --markdown",
+            "use_when": "Render an AI-authored morning command center after the briefing plan has been reviewed.",
         },
         {
             "command": "python3 scripts/asana_api.py task-bundle <task_gid> --project-gid <project_gid>",
@@ -3636,7 +3932,7 @@ def command_show_cache(args: argparse.Namespace) -> Any:
     return enriched
 
 
-def build_inbox_cleanup_payload(args: argparse.Namespace) -> Any:
+def build_inbox_cleanup_review_payload(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
     cache = load_cache()
@@ -3799,9 +4095,13 @@ def build_inbox_cleanup_payload(args: argparse.Namespace) -> Any:
                         "html_text": manager_plan_comment_html(
                             category_label=target_section_name,
                             work_type=classification["work_type"],
+                            task_read=manager_plan["task_read"],
+                            classification_basis=manager_plan["classification_basis"],
                             next_action=manager_plan["next_action"],
                             todo_label=manager_plan["todo_label"],
                             todo_items=manager_plan["todo_items"],
+                            ask_user=manager_plan["ask_user"],
+                            ai_help_summary=manager_plan["ai_help_summary"],
                             execution_prompt=manager_plan.get("execution_prompt"),
                         )
                     }
@@ -3823,6 +4123,11 @@ def build_inbox_cleanup_payload(args: argparse.Namespace) -> Any:
                 "linked_prs": classification["linked_prs"],
                 "active_ai_action": classification["active_ai_action"],
                 "manager_plan": manager_plan,
+                "task_read": manager_plan["task_read"],
+                "classification_basis": manager_plan["classification_basis"],
+                "ask_user": manager_plan["ask_user"],
+                "ai_help_now": manager_plan["ai_help_now"],
+                "ai_help_summary": manager_plan["ai_help_summary"],
                 "manager_comment_allowed": manager_comment_allowed,
                 "manager_comment_block_reason": manager_comment_block_reason,
                 "move_applied": bool(move_result),
@@ -3882,6 +4187,409 @@ def build_inbox_cleanup_payload(args: argparse.Namespace) -> Any:
     return enriched
 
 
+def slugify_category(value: str) -> str:
+    token = re.sub(r"[^a-z0-9]+", "-", str(value or "").casefold()).strip("-")
+    return token or "category"
+
+
+def write_json_file(path_value: str | None, payload: Any) -> str | None:
+    target = str(path_value or "").strip()
+    if not target:
+        return None
+    path = Path(target).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    return str(path)
+
+
+def inbox_cleanup_seed_categories() -> list[dict[str, str]]:
+    return [dict(seed) for seed in INBOX_CLEANUP_CATEGORY_SEEDS]
+
+
+def inbox_cleanup_snapshot_task(task_result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "task_gid": task_result.get("task_gid"),
+        "name": task_result.get("name"),
+        "permalink_url": task_result.get("permalink_url"),
+        "current_section": task_result.get("current_section"),
+        "project_state": daily_briefing_project_state(task_result),
+        "due_date": daily_briefing_due_date(task_result),
+        "reasons": task_result.get("reasons", []) or [],
+        "linked_prs": task_result.get("linked_prs", []) or [],
+        "task_read_hint": task_result.get("task_read"),
+        "classification_basis_hint": task_result.get("classification_basis"),
+        "suggested_next_action_hint": ((task_result.get("manager_plan") or {}).get("next_action")),
+        "ask_user_hint": task_result.get("ask_user"),
+        "ai_help_summary_hint": task_result.get("ai_help_summary"),
+        "active_ai_action_hint": ((task_result.get("active_ai_action") or {}).get("action")),
+        "legacy_category_hint": task_result.get("category_key"),
+        "legacy_target_section_hint": task_result.get("target_section"),
+    }
+
+
+def build_inbox_cleanup_plan_template(snapshot_payload: dict[str, Any]) -> dict[str, Any]:
+    task_templates = []
+    for task in snapshot_payload.get("tasks", []) or []:
+        if not isinstance(task, dict):
+            continue
+        task_templates.append(
+            {
+                "task_gid": task.get("task_gid"),
+                "name": task.get("name"),
+                "decision": "ask_user",
+                "category_slug": "",
+                "target_section_name": "",
+                "confidence": "low",
+                "why": "",
+                "question": task.get("ask_user_hint") or "",
+                "notes": "",
+            }
+        )
+    return {
+        "workflow": INBOX_CLEANUP_PLAN_WORKFLOW,
+        "version": INBOX_CLEANUP_PLAN_VERSION,
+        "generated_at": now_iso(),
+        "my_tasks_gid": ((snapshot_payload.get("my_tasks") or {}).get("gid")),
+        "source": {
+            "workflow": INBOX_CLEANUP_SNAPSHOT_WORKFLOW,
+            "generated_at": snapshot_payload.get("generated_at"),
+            "all_open": snapshot_payload.get("all_open"),
+        },
+        "categories": [],
+        "category_seed_suggestions": inbox_cleanup_seed_categories(),
+        "tasks": task_templates,
+    }
+
+
+def build_inbox_cleanup_snapshot_payload(args: argparse.Namespace) -> dict[str, Any]:
+    review_args = argparse.Namespace(
+        workspace=getattr(args, "workspace", None),
+        source_section=list(getattr(args, "source_section", list(DEFAULT_INBOX_CLEANUP_SOURCE_SECTIONS))),
+        all_open=bool(getattr(args, "all_open", False)),
+        apply=False,
+        skip_ready_comments=True,
+        manager_comments=False,
+        comment_research_todos=False,
+        max_tasks=getattr(args, "max_tasks", 0),
+        no_paginate=getattr(args, "no_paginate", False),
+        limit_pages=getattr(args, "limit_pages", 0),
+        compact=True,
+        token=getattr(args, "token", None),
+        command="inbox-cleanup",
+    )
+    review_payload = build_inbox_cleanup_review_payload(review_args)
+    snapshot_payload = {
+        "workflow": INBOX_CLEANUP_SNAPSHOT_WORKFLOW,
+        "version": INBOX_CLEANUP_PLAN_VERSION,
+        "generated_at": now_iso(),
+        "workspace_gid": review_payload.get("workspace_gid"),
+        "my_tasks": review_payload.get("my_tasks"),
+        "source_sections": review_payload.get("source_sections"),
+        "all_open": review_payload.get("all_open"),
+        "current_section_counts": (((review_payload.get("skill_advertising") or {}).get("my_tasks") or {}).get("section_counts") or {}),
+        "existing_sections": sorted(
+            name
+            for name in ((review_payload.get("review_sections") or {}).keys())
+            if isinstance(name, str)
+        ),
+        "starter_category_seeds": inbox_cleanup_seed_categories(),
+        "tasks": [
+            inbox_cleanup_snapshot_task(task_result)
+            for task_result in (review_payload.get("tasks") or [])
+            if isinstance(task_result, dict)
+        ],
+        "legacy_review_hints": {
+            "counts": review_payload.get("counts", {}) or {},
+        },
+        "instructions": {
+            "summary": "Use this snapshot to create an AI-gated cleanup plan. The AI should define categories first, then assign tasks, and mark ambiguous items as ask_user instead of auto-bucketing them.",
+            "required_task_fields": [
+                "decision",
+                "category_slug",
+                "target_section_name",
+                "confidence",
+                "why",
+                "question",
+            ],
+            "decision_values": [
+                "bucket",
+                "ask_user",
+                "leave_as_is",
+            ],
+        },
+    }
+    snapshot_payload["plan_template"] = build_inbox_cleanup_plan_template(snapshot_payload)
+    snapshot_path = write_json_file(getattr(args, "snapshot_file", None), snapshot_payload)
+    plan_template_path = write_json_file(getattr(args, "plan_template_file", None), snapshot_payload["plan_template"])
+    if snapshot_path:
+        snapshot_payload["snapshot_file"] = snapshot_path
+    if plan_template_path:
+        snapshot_payload["plan_template_file"] = plan_template_path
+    return snapshot_payload
+
+
+def load_json_file(path_value: str) -> dict[str, Any]:
+    path = Path(str(path_value)).expanduser()
+    try:
+        payload = json.loads(path.read_text())
+    except FileNotFoundError as exc:
+        raise SystemExit(f"Plan file not found: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Plan file is not valid JSON: {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"Expected a JSON object in {path}")
+    return payload
+
+
+def resolve_inbox_cleanup_plan_categories(plan: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    categories_by_slug: dict[str, dict[str, Any]] = {}
+    for category in plan.get("categories", []) or []:
+        if not isinstance(category, dict):
+            continue
+        slug = slugify_category(category.get("slug") or category.get("name"))
+        categories_by_slug[slug] = dict(category)
+    return categories_by_slug
+
+
+def build_inbox_cleanup_payload(args: argparse.Namespace) -> dict[str, Any]:
+    if getattr(args, "legacy_auto", False):
+        return build_inbox_cleanup_review_payload(args)
+    if getattr(args, "manager_comments", False) or getattr(args, "comment_research_todos", False) or getattr(args, "skip_ready_comments", False):
+        raise SystemExit(
+            "The AI-gated inbox-cleanup workflow no longer supports Python-authored cleanup comments. Generate a plan first, then let the AI decide whether comments are needed."
+        )
+    if getattr(args, "apply", False):
+        if not getattr(args, "plan_file", None):
+            raise SystemExit(
+                "inbox-cleanup --apply now requires --plan-file. First run inbox-cleanup to emit a snapshot, let the AI write a plan JSON, then apply that plan."
+            )
+        return build_inbox_cleanup_plan_payload(args)
+    if getattr(args, "plan_file", None):
+        return build_inbox_cleanup_plan_payload(args)
+    return build_inbox_cleanup_snapshot_payload(args)
+
+
+def build_inbox_cleanup_plan_payload(args: argparse.Namespace) -> dict[str, Any]:
+    token = get_token(args)
+    context = load_context()
+    cache = load_cache()
+    workspace = workspace_default(args, context, cache)
+    if not workspace:
+        raise SystemExit("No workspace GID provided and no default workspace in asana-context.json")
+
+    plan = load_json_file(args.plan_file)
+    if str(plan.get("workflow") or "") != INBOX_CLEANUP_PLAN_WORKFLOW:
+        raise SystemExit(
+            f"Unsupported plan workflow in {args.plan_file}. Expected `{INBOX_CLEANUP_PLAN_WORKFLOW}`."
+        )
+    categories_by_slug = resolve_inbox_cleanup_plan_categories(plan)
+
+    user_task_list = my_tasks_project(token, workspace)
+    user_task_list_gid = str(user_task_list.get("gid") or "").strip()
+    if not user_task_list_gid:
+        raise SystemExit("Unable to resolve My Tasks for the selected workspace")
+
+    all_tasks = my_tasks_tasks(
+        token,
+        user_task_list_gid,
+        paginate=not args.no_paginate,
+        limit_pages=args.limit_pages,
+    )
+    tasks_by_gid = {
+        str(task.get("gid")): task
+        for task in all_tasks
+        if isinstance(task, dict) and task.get("gid")
+    }
+    existing_sections = my_tasks_sections(token, user_task_list_gid)
+    sections_by_name = {
+        str(section.get("name")): dict(section)
+        for section in existing_sections
+        if isinstance(section, dict) and section.get("name")
+    }
+
+    created_sections: list[str] = []
+    results: list[dict[str, Any]] = []
+    user_questions: list[dict[str, Any]] = []
+
+    for entry in plan.get("tasks", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        task_gid = str(entry.get("task_gid") or "").strip()
+        if not task_gid:
+            continue
+        task = tasks_by_gid.get(task_gid)
+        if not task:
+            results.append(
+                {
+                    "task_gid": task_gid,
+                    "status": "missing_task",
+                    "name": entry.get("name"),
+                    "why": "Task is not currently open in My Tasks.",
+                }
+            )
+            continue
+
+        decision = str(entry.get("decision") or "ask_user").strip().casefold()
+        confidence = str(entry.get("confidence") or "").strip().casefold()
+        current_section = str(((task.get("assignee_section") or {}).get("name")) or "").strip()
+        question = str(entry.get("question") or "").strip()
+        why = str(entry.get("why") or "").strip()
+
+        if decision in {"ask_user", "needs_user_input", "question"}:
+            user_questions.append(
+                {
+                    "task_gid": task_gid,
+                    "name": task.get("name"),
+                    "current_section": current_section,
+                    "question": question,
+                    "why": why,
+                }
+            )
+            results.append(
+                {
+                    "task_gid": task_gid,
+                    "name": task.get("name"),
+                    "status": "ask_user",
+                    "current_section": current_section,
+                    "question": question,
+                    "why": why,
+                }
+            )
+            continue
+        if decision in {"leave", "leave_as_is", "skip"}:
+            results.append(
+                {
+                    "task_gid": task_gid,
+                    "name": task.get("name"),
+                    "status": "left_as_is",
+                    "current_section": current_section,
+                    "why": why,
+                }
+            )
+            continue
+
+        category_slug = slugify_category(entry.get("category_slug") or "")
+        category = categories_by_slug.get(category_slug, {})
+        target_section_name = normalize_whitespace(
+            entry.get("target_section_name")
+            or category.get("section_name")
+            or category.get("suggested_section_name")
+            or category.get("name")
+        )
+        if not target_section_name:
+            user_questions.append(
+                {
+                    "task_gid": task_gid,
+                    "name": task.get("name"),
+                    "current_section": current_section,
+                    "question": question or "No target section was provided for this task.",
+                    "why": why or f"Category `{category_slug}` is missing a target section.",
+                }
+            )
+            results.append(
+                {
+                    "task_gid": task_gid,
+                    "name": task.get("name"),
+                    "status": "missing_target_section",
+                    "current_section": current_section,
+                    "category_slug": category_slug,
+                    "why": why,
+                }
+            )
+            continue
+
+        if confidence == "low" and not getattr(args, "include_low_confidence", False):
+            user_questions.append(
+                {
+                    "task_gid": task_gid,
+                    "name": task.get("name"),
+                    "current_section": current_section,
+                    "question": question or "Low-confidence task: confirm the bucket before moving it.",
+                    "why": why,
+                }
+            )
+            results.append(
+                {
+                    "task_gid": task_gid,
+                    "name": task.get("name"),
+                    "status": "low_confidence_requires_user",
+                    "current_section": current_section,
+                    "target_section": target_section_name,
+                    "confidence": confidence,
+                    "why": why,
+                }
+            )
+            continue
+
+        target_section = sections_by_name.get(target_section_name)
+        if not target_section and getattr(args, "apply", False):
+            created = api_request(
+                token=token,
+                method="POST",
+                path_or_url=f"/projects/{user_task_list_gid}/sections",
+                json_body={"data": {"name": target_section_name}},
+            ).get("data", {})
+            if isinstance(created, dict) and created.get("name"):
+                sections_by_name[str(created["name"])] = created
+                target_section = created
+                created_sections.append(str(created["name"]))
+
+        moved = False
+        if getattr(args, "apply", False) and target_section_name != current_section:
+            target_section_gid = str((target_section or {}).get("gid") or "").strip()
+            if not target_section_gid:
+                raise SystemExit(f"Unable to resolve or create target section `{target_section_name}` for task {task_gid}")
+            api_request(
+                token=token,
+                method="PUT",
+                path_or_url=f"/tasks/{task_gid}",
+                query={"opt_fields": "gid,name,assignee_section.gid,assignee_section.name"},
+                json_body={"data": {"assignee_section": target_section_gid}},
+            )
+            moved = True
+
+        results.append(
+            {
+                "task_gid": task_gid,
+                "name": task.get("name"),
+                "status": "moved" if moved else "planned",
+                "current_section": current_section,
+                "target_section": target_section_name,
+                "category_slug": category_slug,
+                "confidence": confidence,
+                "why": why,
+                "question": question,
+            }
+        )
+
+    payload = {
+        "workflow": INBOX_CLEANUP_PLAN_WORKFLOW,
+        "version": INBOX_CLEANUP_PLAN_VERSION,
+        "mode": "apply" if getattr(args, "apply", False) else "preview_plan",
+        "generated_at": now_iso(),
+        "workspace_gid": workspace,
+        "my_tasks": {
+            "gid": user_task_list_gid,
+            "name": user_task_list.get("name"),
+        },
+        "created_sections": created_sections,
+        "counts": {
+            "tasks_in_plan": len(plan.get("tasks", []) or []),
+            "tasks_known_open": len(tasks_by_gid),
+            "moved": sum(1 for item in results if item.get("status") == "moved"),
+            "planned_moves": sum(1 for item in results if item.get("status") in {"moved", "planned"}),
+            "ask_user": sum(1 for item in results if item.get("status") == "ask_user"),
+            "left_as_is": sum(1 for item in results if item.get("status") == "left_as_is"),
+            "low_confidence_requires_user": sum(1 for item in results if item.get("status") == "low_confidence_requires_user"),
+            "missing_target_section": sum(1 for item in results if item.get("status") == "missing_target_section"),
+            "missing_task": sum(1 for item in results if item.get("status") == "missing_task"),
+        },
+        "results": results,
+        "user_questions": user_questions,
+    }
+    return payload
+
+
 def command_inbox_cleanup(args: argparse.Namespace) -> Any:
     enriched = build_inbox_cleanup_payload(args)
     print_json(enriched, args.compact)
@@ -3935,6 +4643,7 @@ def daily_briefing_item(task_result: dict[str, Any]) -> dict[str, Any]:
         "due_date": daily_briefing_due_date(task_result),
         "pr": daily_briefing_primary_pr(task_result),
         "linked_prs": task_result.get("linked_prs", []) or [],
+        "task_read": task_result.get("task_read"),
         "next_action": ((task_result.get("manager_plan") or {}).get("next_action")),
         "active_ai_action": task_result.get("active_ai_action") or {},
         "task_result": task_result,
@@ -3971,8 +4680,6 @@ def daily_briefing_bucket_score(bucket_name: str, task_result: dict[str, Any]) -
 
 def daily_briefing_bucket_key(task_result: dict[str, Any]) -> str:
     action = str(((task_result.get("active_ai_action") or {}).get("action")) or "no_ai_action")
-    execution_candidate = bool(((task_result.get("manager_plan") or {}).get("execution_candidate")))
-    has_code_signal = execution_candidate or bool(task_result.get("linked_prs"))
 
     if daily_briefing_is_background_noise(task_result):
         return "background"
@@ -3984,12 +4691,14 @@ def daily_briefing_bucket_key(task_result: dict[str, Any]) -> str:
         return "release_watch"
     if action == "ask_to_verify":
         return "needs_verification"
-    if action == "ask_to_execute_now" and has_code_signal and not daily_briefing_done_like(task_result):
+    if action == "ask_to_execute_now" and not daily_briefing_done_like(task_result):
         return "execute_now"
     return "background"
 
 
 def daily_briefing_action_summary(bucket_name: str, item: dict[str, Any]) -> str:
+    if item.get("task_read"):
+        return str(item["task_read"])
     if bucket_name == "execute_now":
         if item.get("pr"):
             return "Real execution signal detected; this looks like active code work."
@@ -4005,73 +4714,256 @@ def daily_briefing_action_summary(bucket_name: str, item: dict[str, Any]) -> str
     return "Keep this visible, but it should not drive the day by default."
 
 
+def daily_briefing_bucket_seeds() -> list[dict[str, Any]]:
+    return [dict(seed) for seed in DAILY_BRIEFING_BUCKET_SEEDS]
+
+
+def daily_briefing_snapshot_task(task_context: dict[str, Any]) -> dict[str, Any]:
+    task = (task_context.get("task") or {}) if isinstance(task_context, dict) else {}
+    stories = (task_context.get("stories") or []) if isinstance(task_context, dict) else []
+    notes = strip_html_to_text(task.get("html_notes") or task.get("notes"))
+    recent_comment_excerpts = [
+        shorten_text(story_text(story), limit=180)
+        for story in recent_comments({"stories": stories}, limit=3)
+        if shorten_text(story_text(story), limit=180)
+    ]
+    combined_text = " ".join(
+        part
+        for part in [str(task.get("name") or ""), notes, *recent_comment_excerpts]
+        if part
+    )
+    linked_prs = extract_github_pr_links(combined_text)
+    follower_count = len([item for item in (task.get("followers") or []) if isinstance(item, dict)])
+    collaborator_count = len([item for item in (task.get("collaborators") or []) if isinstance(item, dict)])
+    return {
+        "task_gid": task.get("gid"),
+        "name": task.get("name"),
+        "url": task.get("permalink_url"),
+        "current_section": str(((task.get("assignee_section") or {}).get("name")) or "").strip(),
+        "due_date": short_date(task.get("due_on") or task.get("due_at")),
+        "completed": bool(task.get("completed")),
+        "project_memberships": task_membership_labels(task),
+        "project_names": task_project_names(task),
+        "linked_prs": linked_prs,
+        "primary_pr": primary_pr_label(linked_prs),
+        "notes_excerpt": shorten_text(notes, limit=280),
+        "recent_comment_excerpts": recent_comment_excerpts,
+        "follower_count": follower_count,
+        "collaborator_count": collaborator_count,
+        "assignee": ((task.get("assignee") or {}).get("name")),
+        "raw_signals": {
+            "has_due_date": bool(task.get("due_on") or task.get("due_at")),
+            "has_pr": bool(linked_prs),
+            "in_recently_assigned": str(((task.get("assignee_section") or {}).get("name")) or "").strip() == "Recently assigned",
+            "has_notes": bool(notes),
+            "has_recent_comments": bool(recent_comment_excerpts),
+        },
+    }
+
+
+def build_daily_briefing_plan_template(snapshot_payload: dict[str, Any]) -> dict[str, Any]:
+    task_templates = []
+    for task in snapshot_payload.get("tasks", []) or []:
+        if not isinstance(task, dict):
+            continue
+        task_templates.append(
+            {
+                "task_gid": task.get("task_gid"),
+                "name": task.get("name"),
+                "decision": "omit",
+                "bucket_slug": "",
+                "confidence": "low",
+                "why": "",
+                "next_action": "",
+                "question": "",
+                "notes": "",
+            }
+        )
+    return {
+        "workflow": DAILY_BRIEFING_PLAN_WORKFLOW,
+        "version": DAILY_BRIEFING_PLAN_VERSION,
+        "generated_at": now_iso(),
+        "my_tasks_gid": ((snapshot_payload.get("my_tasks") or {}).get("gid")),
+        "source": {
+            "workflow": DAILY_BRIEFING_SNAPSHOT_WORKFLOW,
+            "generated_at": snapshot_payload.get("generated_at"),
+        },
+        "overview": "",
+        "focus": "",
+        "categories": daily_briefing_bucket_seeds(),
+        "tasks": task_templates,
+    }
+
+
+def build_daily_briefing_snapshot_payload(args: argparse.Namespace) -> dict[str, Any]:
+    token = get_token(args)
+    context = load_context()
+    cache = load_cache()
+    workspace = workspace_default(args, context, cache)
+    if not workspace:
+        raise SystemExit("No workspace GID provided and no default workspace in asana-context.json")
+
+    user_task_list = my_tasks_project(token, workspace)
+    user_task_list_gid = str(user_task_list.get("gid") or "").strip()
+    if not user_task_list_gid:
+        raise SystemExit("Unable to resolve My Tasks for the selected workspace")
+
+    all_tasks = my_tasks_tasks(
+        token,
+        user_task_list_gid,
+        paginate=not args.no_paginate,
+        limit_pages=args.limit_pages,
+    )
+    filtered_tasks = [task for task in all_tasks if isinstance(task, dict)]
+    if args.max_tasks > 0:
+        filtered_tasks = filtered_tasks[: args.max_tasks]
+
+    task_contexts = fetch_task_review_context(
+        token,
+        [str(task.get("gid")) for task in filtered_tasks if task.get("gid")],
+    )
+    snapshot_tasks = []
+    for task in filtered_tasks:
+        task_gid = str(task.get("gid") or "").strip()
+        if not task_gid:
+            continue
+        snapshot_tasks.append(daily_briefing_snapshot_task(task_contexts.get(task_gid) or {"task": task, "stories": []}))
+
+    payload = {
+        "workflow": DAILY_BRIEFING_SNAPSHOT_WORKFLOW,
+        "version": DAILY_BRIEFING_PLAN_VERSION,
+        "generated_at": now_iso(),
+        "workspace_gid": workspace,
+        "my_tasks": {
+            "gid": user_task_list_gid,
+            "name": user_task_list.get("name"),
+        },
+        "open_task_count": len(all_tasks),
+        "tasks_considered": len(snapshot_tasks),
+        "current_section_counts": my_tasks_summary(
+            token,
+            workspace_gid=workspace,
+            cache=cache,
+            refresh=True,
+        ).get("section_counts", {}),
+        "starter_buckets": daily_briefing_bucket_seeds(),
+        "tasks": snapshot_tasks,
+        "instructions": {
+            "summary": "Use this snapshot to decide which tasks are actually actionable today. The agent should auto-author the daily briefing plan from this data, render it for the user, and only surface ask_user items when ambiguity materially changes the day plan.",
+            "required_task_fields": [
+                "decision",
+                "bucket_slug",
+                "confidence",
+                "why",
+                "next_action",
+                "question",
+            ],
+            "decision_values": [
+                "highlight",
+                "ask_user",
+                "omit",
+            ],
+        },
+    }
+    payload["plan_template"] = build_daily_briefing_plan_template(payload)
+    snapshot_path = write_json_file(getattr(args, "snapshot_file", None), payload)
+    plan_template_path = write_json_file(getattr(args, "plan_template_file", None), payload["plan_template"])
+    if snapshot_path:
+        payload["snapshot_file"] = snapshot_path
+    if plan_template_path:
+        payload["plan_template_file"] = plan_template_path
+    return payload
+
+
+def resolve_daily_briefing_plan_categories(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    categories_by_slug: dict[str, dict[str, Any]] = {}
+    for seed in daily_briefing_bucket_seeds():
+        slug = slugify_category(seed.get("slug") or seed.get("name"))
+        entry = dict(seed)
+        entry["slug"] = slug
+        categories_by_slug[slug] = entry
+    for index, category in enumerate(plan.get("categories", []) or [], start=1):
+        if not isinstance(category, dict):
+            continue
+        slug = slugify_category(category.get("slug") or category.get("name"))
+        merged = dict(categories_by_slug.get(slug) or {})
+        merged.update(category)
+        merged["slug"] = slug
+        if "display_order" not in merged:
+            merged["display_order"] = len(categories_by_slug) + index
+        categories_by_slug[slug] = merged
+    return sorted(
+        categories_by_slug.values(),
+        key=lambda item: (
+            int(item.get("display_order") or 999),
+            str(item.get("name") or item.get("slug") or "").casefold(),
+        ),
+    )
+
+
 def render_daily_briefing_markdown(payload: dict[str, Any]) -> str:
     summary = payload.get("summary", {}) or {}
-    bucket_titles = {
-        "execute_now": "Execute Now",
-        "release_watch": "Release / Ship Watch",
-        "needs_verification": "Needs Verification",
-        "needs_follow_up": "Needs Follow-Up",
-        "ready_to_close": "Likely Ready To Close",
-        "background": "Background / Not Today",
-    }
-    bucket_limits = {
-        "execute_now": 6,
-        "release_watch": 6,
-        "needs_verification": 6,
-        "needs_follow_up": 6,
-        "ready_to_close": 6,
-        "background": 8,
-    }
-    lines = [
-        f"**Morning Command Center — {payload.get('briefing_date', '')}**",
-        (
-            f"- Today at a glance: {summary.get('open_task_count', 0)} open tasks, "
-            f"{summary.get('execute_now_count', 0)} execute-now, "
-            f"{summary.get('release_watch_count', 0)} release/watch, "
-            f"{summary.get('needs_verification_count', 0)} needs verification, "
-            f"{summary.get('needs_follow_up_count', 0)} needs follow-up, "
-            f"{summary.get('ready_to_close_count', 0)} likely ready to close."
-        ),
-        "- Focus today: unblock and release-track existing work before starting new implementation.",
-    ]
+    categories = payload.get("categories") or daily_briefing_bucket_seeds()
+    buckets = payload.get("buckets", {}) or {}
+    lines = [f"**Morning Command Center — {payload.get('briefing_date', '')}**"]
+    overview = normalize_whitespace(payload.get("overview"))
+    if overview:
+        lines.append(f"- {overview}")
+    else:
+        lines.append(
+            f"- Today at a glance: {summary.get('open_task_count', 0)} open tasks, {summary.get('highlighted_count', 0)} highlighted by the AI plan."
+        )
+    focus = normalize_whitespace(payload.get("focus"))
+    if focus:
+        lines.append(f"- Focus today: {focus}")
 
-    for bucket_name in (
-        "execute_now",
-        "release_watch",
-        "needs_verification",
-        "needs_follow_up",
-        "ready_to_close",
-        "background",
-    ):
-        entries = payload.get("buckets", {}).get(bucket_name, []) or []
-        limit = bucket_limits[bucket_name]
+    for category in categories:
+        if not isinstance(category, dict):
+            continue
+        slug = slugify_category(category.get("slug") or category.get("name"))
+        title = str(category.get("name") or slug.replace("-", " ").title())
+        entries = buckets.get(slug, []) or []
         lines.append("")
-        lines.append(f"**{bucket_titles[bucket_name]}**")
+        lines.append(f"**{title}**")
         if not entries:
             lines.append("- None today.")
             continue
-        for entry in entries[:limit]:
+        for entry in entries:
             lines.append(f"- [{entry.get('name')}]({entry.get('url')})")
             detail_bits: list[str] = []
-            if entry.get("pr"):
-                detail_bits.append(str(entry["pr"]))
-            if entry.get("project_state"):
-                detail_bits.append(str(entry["project_state"]))
+            if entry.get("primary_pr"):
+                detail_bits.append(str(entry["primary_pr"]))
+            memberships = entry.get("project_memberships") or []
+            if memberships:
+                detail_bits.append(str(memberships[0]))
             if entry.get("due_date"):
                 detail_bits.append(f"due {entry['due_date']}")
             if entry.get("current_section"):
                 detail_bits.append(f"My Tasks: {entry['current_section']}")
-            detail_bits.append(daily_briefing_action_summary(bucket_name, entry))
+            if entry.get("why"):
+                detail_bits.append(str(entry["why"]))
             if entry.get("next_action"):
                 detail_bits.append(f"Next: {entry['next_action']}")
-            lines.append(f"  {' ; '.join(detail_bits)}")
-        if len(entries) > limit:
-            lines.append(f"- + {len(entries) - limit} more")
+            if detail_bits:
+                lines.append(f"  {' ; '.join(detail_bits)}")
+
+    user_questions = payload.get("user_questions", []) or []
+    if user_questions:
+        lines.append("")
+        lines.append("**Needs Your Input**")
+        for item in user_questions:
+            lines.append(f"- [{item.get('name')}]({item.get('url')})")
+            detail_bits = []
+            if item.get("why"):
+                detail_bits.append(str(item["why"]))
+            if item.get("question"):
+                detail_bits.append(f"Question: {item['question']}")
+            if detail_bits:
+                lines.append(f"  {' ; '.join(detail_bits)}")
     return "\n".join(lines)
 
 
-def build_daily_briefing(args: argparse.Namespace) -> dict[str, Any]:
+def build_daily_briefing_review_payload(args: argparse.Namespace) -> dict[str, Any]:
     cleanup_args = argparse.Namespace(
         workspace=getattr(args, "workspace", None),
         source_section=list(DEFAULT_INBOX_CLEANUP_SOURCE_SECTIONS),
@@ -4087,7 +4979,7 @@ def build_daily_briefing(args: argparse.Namespace) -> dict[str, Any]:
         token=getattr(args, "token", None),
         command="daily-briefing",
     )
-    cleanup_payload = build_inbox_cleanup_payload(cleanup_args)
+    cleanup_payload = build_inbox_cleanup_review_payload(cleanup_args)
     task_results = cleanup_payload.get("tasks", []) or []
     bucketed: dict[str, list[dict[str, Any]]] = {
         "execute_now": [],
@@ -4137,7 +5029,215 @@ def build_daily_briefing(args: argparse.Namespace) -> dict[str, Any]:
     return payload
 
 
+def build_daily_briefing_plan_payload(args: argparse.Namespace) -> dict[str, Any]:
+    token = get_token(args)
+    context = load_context()
+    cache = load_cache()
+    workspace = workspace_default(args, context, cache)
+    if not workspace:
+        raise SystemExit("No workspace GID provided and no default workspace in asana-context.json")
+
+    plan = load_json_file(args.plan_file)
+    if str(plan.get("workflow") or "") != DAILY_BRIEFING_PLAN_WORKFLOW:
+        raise SystemExit(
+            f"Unsupported plan workflow in {args.plan_file}. Expected `{DAILY_BRIEFING_PLAN_WORKFLOW}`."
+        )
+
+    user_task_list = my_tasks_project(token, workspace)
+    user_task_list_gid = str(user_task_list.get("gid") or "").strip()
+    if not user_task_list_gid:
+        raise SystemExit("Unable to resolve My Tasks for the selected workspace")
+
+    all_tasks = my_tasks_tasks(
+        token,
+        user_task_list_gid,
+        paginate=not args.no_paginate,
+        limit_pages=args.limit_pages,
+    )
+    tasks_by_gid = {
+        str(task.get("gid")): task
+        for task in all_tasks
+        if isinstance(task, dict) and task.get("gid")
+    }
+    planned_task_gids = [
+        str(entry.get("task_gid") or "").strip()
+        for entry in (plan.get("tasks") or [])
+        if isinstance(entry, dict) and entry.get("task_gid")
+    ]
+    task_contexts = fetch_task_review_context(token, [gid for gid in planned_task_gids if gid in tasks_by_gid])
+    task_cards = {
+        gid: daily_briefing_snapshot_task(task_contexts.get(gid) or {"task": tasks_by_gid.get(gid) or {}, "stories": []})
+        for gid in planned_task_gids
+        if gid in tasks_by_gid
+    }
+
+    categories = resolve_daily_briefing_plan_categories(plan)
+    categories_by_slug = {
+        slugify_category(category.get("slug") or category.get("name")): category
+        for category in categories
+        if isinstance(category, dict)
+    }
+    buckets: dict[str, list[dict[str, Any]]] = {
+        slugify_category(category.get("slug") or category.get("name")): []
+        for category in categories
+        if isinstance(category, dict)
+    }
+    results: list[dict[str, Any]] = []
+    user_questions: list[dict[str, Any]] = []
+
+    for entry in plan.get("tasks", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        task_gid = str(entry.get("task_gid") or "").strip()
+        if not task_gid:
+            continue
+        task_card = task_cards.get(task_gid)
+        if not task_card:
+            results.append(
+                {
+                    "task_gid": task_gid,
+                    "name": entry.get("name"),
+                    "status": "missing_task",
+                    "why": "Task is not currently open in My Tasks.",
+                }
+            )
+            continue
+
+        decision = str(entry.get("decision") or "omit").strip().casefold()
+        confidence = str(entry.get("confidence") or "").strip().casefold()
+        why = normalize_whitespace(entry.get("why"))
+        question = normalize_whitespace(entry.get("question"))
+        next_action = normalize_whitespace(entry.get("next_action"))
+
+        if decision in {"ask_user", "question", "needs_user_input"}:
+            question_entry = dict(task_card)
+            question_entry.update(
+                {
+                    "why": why,
+                    "question": question,
+                    "next_action": next_action,
+                    "confidence": confidence,
+                }
+            )
+            user_questions.append(question_entry)
+            results.append(
+                {
+                    "task_gid": task_gid,
+                    "name": task_card.get("name"),
+                    "status": "ask_user",
+                    "why": why,
+                    "question": question,
+                }
+            )
+            continue
+
+        if decision in {"omit", "leave_as_is", "skip", "background"}:
+            results.append(
+                {
+                    "task_gid": task_gid,
+                    "name": task_card.get("name"),
+                    "status": "omitted",
+                    "why": why,
+                }
+            )
+            continue
+
+        bucket_slug = slugify_category(entry.get("bucket_slug") or "")
+        category = categories_by_slug.get(bucket_slug)
+        if decision in {"highlight", "include", "bucket"} and not category:
+            user_questions.append(
+                {
+                    **task_card,
+                    "why": why or f"Bucket `{bucket_slug}` is missing from the plan categories.",
+                    "question": question or "Which briefing bucket should this task belong in?",
+                    "next_action": next_action,
+                    "confidence": confidence,
+                }
+            )
+            results.append(
+                {
+                    "task_gid": task_gid,
+                    "name": task_card.get("name"),
+                    "status": "missing_bucket",
+                    "bucket_slug": bucket_slug,
+                    "why": why,
+                }
+            )
+            continue
+
+        if bucket_slug not in buckets:
+            buckets[bucket_slug] = []
+        highlighted = dict(task_card)
+        highlighted.update(
+            {
+                "why": why,
+                "next_action": next_action,
+                "question": question,
+                "confidence": confidence,
+                "bucket_slug": bucket_slug,
+                "notes": normalize_whitespace(entry.get("notes")),
+            }
+        )
+        buckets[bucket_slug].append(highlighted)
+        results.append(
+            {
+                "task_gid": task_gid,
+                "name": task_card.get("name"),
+                "status": "highlighted",
+                "bucket_slug": bucket_slug,
+                "why": why,
+            }
+        )
+
+    summary = {
+        "open_task_count": len(all_tasks),
+        "tasks_in_plan": len(plan.get("tasks", []) or []),
+        "highlighted_count": sum(1 for item in results if item.get("status") == "highlighted"),
+        "ask_user_count": sum(1 for item in results if item.get("status") == "ask_user"),
+        "omitted_count": sum(1 for item in results if item.get("status") == "omitted"),
+        "missing_task_count": sum(1 for item in results if item.get("status") == "missing_task"),
+        "missing_bucket_count": sum(1 for item in results if item.get("status") == "missing_bucket"),
+    }
+    payload = {
+        "workflow": DAILY_BRIEFING_PLAN_WORKFLOW,
+        "version": DAILY_BRIEFING_PLAN_VERSION,
+        "mode": "render_plan",
+        "briefing_date": datetime.now().strftime("%B %d, %Y"),
+        "generated_at": now_iso(),
+        "overview": normalize_whitespace(plan.get("overview"))
+        or "AI-selected daily briefing over the current My Tasks list.",
+        "focus": normalize_whitespace(plan.get("focus")),
+        "summary": summary,
+        "categories": categories,
+        "buckets": buckets,
+        "user_questions": user_questions,
+        "results": results,
+        "source": {
+            "command": "python3 scripts/asana_api.py daily-briefing",
+            "workspace_gid": workspace,
+            "my_tasks": {
+                "gid": user_task_list_gid,
+                "name": user_task_list.get("name"),
+            },
+        },
+    }
+    payload["rendered_markdown"] = render_daily_briefing_markdown(payload)
+    return payload
+
+
+def build_daily_briefing(args: argparse.Namespace) -> dict[str, Any]:
+    if getattr(args, "legacy_auto", False):
+        return build_daily_briefing_review_payload(args)
+    if getattr(args, "plan_file", None):
+        return build_daily_briefing_plan_payload(args)
+    return build_daily_briefing_snapshot_payload(args)
+
+
 def command_daily_briefing(args: argparse.Namespace) -> Any:
+    if getattr(args, "markdown", False) and not getattr(args, "plan_file", None) and not getattr(args, "legacy_auto", False):
+        raise SystemExit(
+            "daily-briefing --markdown now requires --plan-file. First run daily-briefing to emit a snapshot, let the AI write a plan JSON, then render that plan."
+        )
     payload = build_daily_briefing(args)
     if getattr(args, "markdown", False):
         print(payload["rendered_markdown"])
@@ -4375,7 +5475,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     inbox_cleanup_parser = subparsers.add_parser(
         "inbox-cleanup",
-        help="Work through My Tasks intake like a personal PM: triage into Review sections, suggest next actions, and optionally post AI comments",
+        help="Generate an AI-gated My Tasks cleanup snapshot or apply an AI-authored cleanup plan",
     )
     inbox_cleanup_parser.add_argument("--workspace", help="Workspace GID override")
     inbox_cleanup_parser.add_argument(
@@ -4387,27 +5487,49 @@ def build_parser() -> argparse.ArgumentParser:
     inbox_cleanup_parser.add_argument(
         "--all-open",
         action="store_true",
-        help="Ignore source-section filtering and classify all open tasks in My Tasks",
+        help="Ignore source-section filtering and include all open tasks in My Tasks",
+    )
+    inbox_cleanup_parser.add_argument(
+        "--snapshot-file",
+        help="Write the AI-gating snapshot JSON to this file in addition to stdout",
+    )
+    inbox_cleanup_parser.add_argument(
+        "--plan-template-file",
+        help="Write an editable cleanup plan template JSON to this file",
+    )
+    inbox_cleanup_parser.add_argument(
+        "--plan-file",
+        help="Path to an AI-authored cleanup plan JSON to preview or apply",
     )
     inbox_cleanup_parser.add_argument(
         "--apply",
         action="store_true",
-        help="Create missing Review sections, move tasks, and post ready-to-close comments",
+        help="Apply the provided AI-authored plan file by moving tasks into the requested sections",
+    )
+    inbox_cleanup_parser.add_argument(
+        "--include-low-confidence",
+        action="store_true",
+        help="When applying a plan, also move tasks marked low confidence instead of leaving them for user review",
+    )
+    inbox_cleanup_parser.add_argument(
+        "--legacy-auto",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     inbox_cleanup_parser.add_argument(
         "--skip-ready-comments",
         action="store_true",
-        help="Do not post AI review comments on likely-ready-to-close tasks",
+        help=argparse.SUPPRESS,
     )
     inbox_cleanup_parser.add_argument(
         "--manager-comments",
         action="store_true",
-        help="Post AI manager-plan comments on research, coordination, and next-action tasks",
+        help=argparse.SUPPRESS,
     )
     inbox_cleanup_parser.add_argument(
         "--comment-research-todos",
         action="store_true",
-        help="Post AI research TODO comments only for tasks classified as research",
+        help=argparse.SUPPRESS,
     )
     inbox_cleanup_parser.add_argument(
         "--max-tasks",
@@ -4431,14 +5553,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     daily_briefing_parser = subparsers.add_parser(
         "daily-briefing",
-        help="Render a full morning command center for My Tasks with links, ship-watch detection, and action buckets",
+        help="Generate an AI-gated daily briefing snapshot or render an AI-authored morning briefing plan",
     )
     daily_briefing_parser.add_argument("--workspace", help="Workspace GID override")
     daily_briefing_parser.add_argument(
         "--max-tasks",
         type=int,
         default=0,
-        help="Limit how many My Tasks items to analyze before building the briefing",
+        help="Limit how many My Tasks items to include in the briefing snapshot",
     )
     daily_briefing_parser.add_argument(
         "--no-paginate",
@@ -4452,9 +5574,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Stop My Tasks pagination after N pages",
     )
     daily_briefing_parser.add_argument(
+        "--snapshot-file",
+        help="Write the daily briefing snapshot JSON to this file in addition to stdout",
+    )
+    daily_briefing_parser.add_argument(
+        "--plan-template-file",
+        help="Write an editable daily briefing plan template JSON to this file",
+    )
+    daily_briefing_parser.add_argument(
+        "--plan-file",
+        help="Path to an AI-authored daily briefing plan JSON to render",
+    )
+    daily_briefing_parser.add_argument(
         "--markdown",
         action="store_true",
-        help="Print the rendered markdown briefing instead of JSON",
+        help="Print the rendered markdown briefing from the provided AI-authored plan instead of JSON",
+    )
+    daily_briefing_parser.add_argument(
+        "--legacy-auto",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     add_common_output_flags(daily_briefing_parser)
     daily_briefing_parser.set_defaults(func=command_daily_briefing)

@@ -83,65 +83,80 @@ They do not infer whether a section means “done”.
 
 Recommended triage flow for AI-generated pull docs:
 
-1. Run `project-assigned-tasks` with `--include-task-position --include-comments --comment-limit 3 --include-attachments`.
-2. Split the result into:
-   - implemented / QA only
-   - active code-now
-   - needs repro before code
-   - backlog / workflow cleanup
-3. Run `task-bundle` only for the small set of tasks in `active code-now`.
-4. If you publish a markdown summary, clearly label the raw snapshot versus your contextual working interpretation.
+Use a two-pass workflow: gather enriched assigned-task context first, split the work into implementation buckets, then run `task-bundle` only for the short list that still looks like real coding work.
+
+Full spec:
+
+- `references/automations/project-assigned-working-set.md`
 
 Search tasks in a workspace:
 
 ```bash
 python3 scripts/asana_api.py search-tasks --text "homepage" --project <project_gid>
-python3 scripts/asana_api.py search-tasks --text "homepage" --project <project_gid> --assignee "Eli Bosley"
+python3 scripts/asana_api.py search-tasks --text "homepage" --project <project_gid> --assignee "Exact User Name"
 ```
 
 After `users` has been run at least once, commands that accept assignees or followers can resolve exact cached user names or emails in addition to raw gids and `me`.
+
+For long reusable automations, keep this cookbook concise and put the full body in `references/automations/`.
+The recipe entries below are discovery summaries; when a matching automation spec exists, open the full `.md` file before implementing or scheduling the automation.
+
+Build a manager-facing weekly summary for one employee:
+
+Use this when the question is "what has this person been working on?" and the desired output is a manager-readable summary task or note rather than raw task JSON.
+
+Use a search-and-summarize workflow over board-only views, bucket work into `Completed`, `In Progress`, and `Blocked / Stalled`, then create one manager-facing summary artifact with direct task links and recommended follow-up messages.
+
+Full spec:
+
+- `references/automations/weekly-manager-summary.md`
+
+Build a recurring follow-up summary for tasks I am involved in but do not own:
+
+Use this when the question is "what open tasks assigned to other people may still need something from me?" and the desired output is one recurring summary task in My Tasks instead of a raw search result dump.
+
+This recipe works well as a scheduled Codex automation or Claude schedule, especially for a weekly Friday-morning check-in.
+
+Use an involvement-scan workflow, classify each task into `Needs my action` or `FYI / watching`, create or update one summary task for the run date, and keep LLM usage constrained to ambiguous comment threads only.
+
+Full spec:
+
+- `references/automations/friday-follow-up-summary.md`
 
 Clean up My Tasks intake into review buckets:
 
 ```bash
 python3 scripts/asana_api.py inbox-cleanup
-python3 scripts/asana_api.py inbox-cleanup --apply
-python3 scripts/asana_api.py inbox-cleanup --source-section "Recently assigned" --apply
+python3 scripts/asana_api.py inbox-cleanup --snapshot-file /tmp/asana-inbox-snapshot.json --plan-template-file /tmp/asana-inbox-plan.json
 python3 scripts/asana_api.py inbox-cleanup --all-open --max-tasks 50
-python3 scripts/asana_api.py inbox-cleanup --manager-comments
-python3 scripts/asana_api.py inbox-cleanup --comment-research-todos --apply
+python3 scripts/asana_api.py inbox-cleanup --plan-file /tmp/asana-inbox-plan.json
+python3 scripts/asana_api.py inbox-cleanup --plan-file /tmp/asana-inbox-plan.json --apply
+python3 scripts/asana_api.py inbox-cleanup --plan-file /tmp/asana-inbox-plan.json --apply --include-low-confidence
 ```
 
-Use `inbox-cleanup` when the question is "please sort my My Tasks intake into review states".
-It defaults to the `Recently assigned` section in My Tasks, creates `Review:` sections when missing, moves tasks without completing them, and posts an AI disclaimer comment only for tasks that look likely ready to close.
-It also returns a manager plan per task: work type, suggested next action, a TODO list, and whether the task looks like a good candidate for immediate execution after user confirmation.
-It also returns an `active_ai_action` per task, based on re-reading task comments and linked PR URLs, so the caller can distinguish `ask_to_execute_now`, `ask_to_verify`, `ask_to_follow_up`, `ask_to_close`, and `no_ai_action`.
-When the user wants help working through their tasks like a PM, treat `inbox-cleanup` as the main entry point. The intended behavior is not just "sort these" but "tell me what this task is, what should happen next, what AI can do now, and what question to ask me before acting."
-Manager comments are intentionally stricter than section triage. They should only post on tasks that look truly private: no shared project context, no parent-task context, no non-assignee followers/collaborators, and no comment history from anyone other than the assignee.
-Use `--manager-comments` when you want the helper to write AI-authored next-step comments into the tasks, and `--comment-research-todos` when you only want research-style TODO writeups.
-Keep the default scope narrow unless the user explicitly asks for a wider sweep.
+Use `inbox-cleanup` when the question is "clean up my My Tasks intake and let AI decide the categories and buckets".
+Treat it as an AI-gated workflow rather than a filing pass: the first run emits a snapshot plus plan scaffold, the AI defines the categories and per-task decisions in JSON, and only the approved plan is previewed or applied. Ambiguous tasks should stay interactive with `ask_user` questions instead of being auto-bucketed by Python.
+
+Full spec:
+
+- `references/automations/inbox-cleanup.md`
 
 Build a full morning command center for My Tasks:
 
 ```bash
 python3 scripts/asana_api.py daily-briefing
-python3 scripts/asana_api.py daily-briefing --markdown
-python3 scripts/asana_api.py daily-briefing --markdown --max-tasks 50
+python3 scripts/asana_api.py daily-briefing --snapshot-file /tmp/asana-daily-briefing-snapshot.json --plan-template-file /tmp/asana-daily-briefing-plan.json
+python3 scripts/asana_api.py daily-briefing --max-tasks 50
+python3 scripts/asana_api.py daily-briefing --plan-file /tmp/asana-daily-briefing-plan.json
+python3 scripts/asana_api.py daily-briefing --plan-file /tmp/asana-daily-briefing-plan.json --markdown
 ```
 
 Use `daily-briefing` when the question is "what should I focus on this morning?" or "give me the full command center for my tasks."
-It is intentionally read-only and returns direct links for every surfaced task.
-Unlike `inbox-cleanup`, it does not try to move tasks between sections.
-Instead it turns the existing task analysis into buckets like:
+It is intentionally read-only and now AI-gated: the helper emits a snapshot plus plan scaffold, but the agent should author that plan itself, render the final command center, and only ask the user about the small set of genuinely ambiguous tasks. Do not rely on built-in heuristics to decide the morning queue.
 
-- `Execute Now`
-- `Release / Ship Watch`
-- `Needs Verification`
-- `Needs Follow-Up`
-- `Likely Ready To Close`
-- `Background / Not Today`
+Full spec:
 
-Project columns matter here. If a task has PR/code context but the project state already says `Done`, `Test`, `Staging`, `QA`, or `Production`, the briefing should not present it as new execution work. It belongs in ship-watch or verification instead.
+- `references/automations/daily-briefing.md`
 
 Close out stale personal sections by relocating tasks, then deleting the empty section:
 
@@ -160,8 +175,11 @@ python3 scripts/asana_api.py close-out-sections <project_gid> \
 ```
 
 Use `close-out-sections` when the question is "move everything out of these stale sections and remove them."
-It resolves source and destination sections by exact name or gid inside one project, supports preview mode by default, can move only completed tasks or only incomplete tasks, and deletes the source section only after a final emptiness check passes.
-For My Tasks, treat `Recently assigned` as a special case: it can often be emptied successfully, but Asana may still refuse to delete the column afterward. In that case, report it as emptied and stop instead of hammering the delete endpoint.
+It should behave like a safety-first cleanup tool: preview first, move the requested task set, verify emptiness, then delete only when safe.
+
+Full spec:
+
+- `references/automations/close-out-sections.md`
 
 ## Write operations
 

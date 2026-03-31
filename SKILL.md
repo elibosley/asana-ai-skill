@@ -1,6 +1,6 @@
 ---
 name: asana
-description: Use when reading or updating Asana data through the REST API, including tasks, projects, sections, stories/comments, teams, users, tags, attachments, custom fields, and workspace metadata. Best for local automation or one-off Asana admin/workflow tasks where an AI coding agent should make direct API calls with a personal access token.
+description: Use when reading or updating Asana data through the REST API, including tasks, projects, sections, stories/comments, teams, users, tags, attachments, custom fields, and workspace metadata. Best for local automation or one-off Asana admin/workflow tasks where an AI coding agent should make direct API calls with a personal access token. Also use it for higher-level workflows such as daily-briefing command centers, inbox-cleanup AI-gated My Tasks triage, close-out-sections cleanup, assigned-work working-set triage, manager summary rollups, and recurring follow-up summaries.
 ---
 
 # Asana
@@ -52,25 +52,31 @@ The helper reads the PAT from `ASANA_ACCESS_TOKEN` first, then falls back to the
    - Task descriptions/notes: `html_notes`
 17. Do not paste Markdown-style bullets or escaped `\n` sequences into plain `text` fields when the message needs headings, lists, or paragraphs. Prefer proper HTML structure.
 18. Before posting or updating an AI-authored message, sanity-check how it will render in Asana: use block-style sections for narrative/status lines, `<strong>` for labels, and `<ul><li>` only for actual lists rather than relying on Markdown.
-19. After any write that creates or updates a task or story, include the returned Asana `review_url` in your user-facing reply so the user can click straight into the updated object. For story writes, also surface `target_review_url` when helpful so the user can review the parent task.
-20. The helper auto-normalizes AI disclaimer messages that arrive as one inline HTML blob or as the older single-list disclaimer format, and it now compacts AI-authored rich text before posting so indentation whitespace does not create phantom empty bullets in Asana.
-21. For My Tasks intake cleanup, prefer `inbox-cleanup` over manual section shuffling. Treat it as the default "work through my tasks with me" mechanism: it treats My Tasks as a project, creates `Review:` sections when needed, moves tasks without completing them, and only comments on high-confidence "likely ready to close" items.
-22. `inbox-cleanup` should default to the `Recently assigned` My Tasks section unless the user explicitly asks for a wider sweep such as `--all-open` or extra `--source-section` values.
-23. Use the helper's `skill_advertising` block when present. It summarizes My Tasks size, flags when `Recently assigned` is large enough to justify `inbox-cleanup`, and highlights other useful commands such as `task-bundle`, `project-assigned-tasks`, and `search-tasks`.
-24. `inbox-cleanup` now also emits a lightweight manager plan per task: work type, suggested next action, TODO list, and whether the task looks like a good candidate for immediate execution after asking the user.
-25. When the user wants a catered system that helps them actually work through tasks, frame `inbox-cleanup` as a personal PM pass, not a filing pass. The desired output is: what this task really is, what should happen next, what the TODOs are, whether AI can execute now, and what should be asked back to the user before acting.
-26. When the user wants the cleanup pass to act more like a personal PM, use `--manager-comments` to post AI-authored next-step comments, or `--comment-research-todos` to post only research TODO comments.
-27. Manager-plan comments must stay private-by-default. Do not emit them into tasks that appear shared through project membership, parent-task context, non-assignee followers/collaborators, or comment history from anyone other than the assignee; reserve those AI-authored PM comments for tasks that look truly private to the user's My Tasks.
-28. `inbox-cleanup` should now be treated as an active AI triage pass, not just a section-mover. It re-analyzes task comments, looks for linked PRs/URLs, assigns an `active_ai_action` like `ask_to_execute_now` or `ask_to_verify`, and surfaces which tasks are good candidates for immediate AI help after the user confirms.
-29. When the user wants to retire old personal sections, prefer `close-out-sections` over ad hoc manual moves. It can preview exact source sections, move all tasks or only completed/incomplete tasks into a destination section, and only deletes the source section after it is actually empty.
-30. Treat some My Tasks columns as potentially undeletable even after they are empty. In particular, `Recently assigned` can usually be drained to zero tasks, but Asana may still refuse to remove the column, so present that outcome as "emptied but not removable" rather than retrying indefinitely.
-31. When the user wants a full morning overview instead of a filing pass, prefer `daily-briefing`. It builds a read-only command center over all open My Tasks, includes direct links for every surfaced task, and separates `Execute Now`, `Release / Ship Watch`, `Needs Verification`, `Needs Follow-Up`, `Likely Ready To Close`, and `Background / Not Today`.
-32. `daily-briefing` must treat project columns as first-class workflow context. If a task has code/PR signals but its project state already says `Done`, `Test`, `Staging`, `QA`, `Production`, or similar, do not present it as `Execute Now`; move it to `Release / Ship Watch` or `Needs Verification` instead.
-33. For `daily-briefing`, keep the command-center framing broad but opinionated: show the important non-code queues too, but suppress admin/training/goal noise into the background bucket so the day is not driven by low-signal tasks.
-34. If the task changes this skill repo itself, treat it as a shipped skill update unless the user explicitly says not to release it yet.
-35. Before committing or pushing any skill change, run `python3 scripts/check_release.py`. Do not push until it passes.
-36. If `check_release.py` fails because release metadata is missing, run `python3 scripts/bump_version.py --part auto --title "Short release title"`. Let the helper choose the semantically correct bump from the current diff unless the user explicitly wants an override. Replace the scaffold line in `CHANGELOG.md` with a real user-facing summary, rerun `python3 scripts/check_release.py`, then commit and push.
-37. Never leave the top changelog entry on the placeholder text `Describe the user-visible change here.` If you bumped the version, you own writing the matching release note before you finish.
+19. The wrapper supports rich-text comments, but not an explicit mention flag. When the user wants an `@mention`, first check whether Asana will accept the mention token in `html_text`; if not, fall back to the raw stories endpoint with the mention format Asana expects.
+20. After any write that creates or updates a task or story, include the returned Asana `review_url` in your user-facing reply so the user can click straight into the updated object. For story writes, also surface `target_review_url` when helpful so the user can review the parent task.
+21. The helper auto-normalizes AI disclaimer messages that arrive as one inline HTML blob or as the older single-list disclaimer format, and it now compacts AI-authored rich text before posting so indentation whitespace does not create phantom empty bullets in Asana.
+22. For My Tasks intake cleanup, prefer `inbox-cleanup` over manual section shuffling. Treat it as the default "work through my tasks with me" mechanism, but with an AI gate: the first run should fetch context and emit a snapshot plus plan template, not move tasks immediately.
+23. `inbox-cleanup` should default to the `Recently assigned` My Tasks section unless the user explicitly asks for a wider sweep such as `--all-open` or extra `--source-section` values.
+24. Use the helper's `skill_advertising` block when present. It summarizes My Tasks size, flags when `Recently assigned` is large enough to justify `inbox-cleanup`, and highlights other useful commands such as `task-bundle`, `project-assigned-tasks`, and `search-tasks`.
+25. The AI should define the high-level inbox categories first. Do not let Python heuristics pick the final categories or target sections by themselves.
+26. The desired `inbox-cleanup` output is a reviewed JSON plan: category definitions, per-task bucket decisions, specific `ask_user` questions for ambiguous tasks, and concrete section targets for the high-confidence tasks.
+27. The helper's snapshot includes legacy task-read hints, but those are only hints for planning. The final bucket decision should come from the AI-authored plan JSON.
+28. When applying a plan, move only tasks whose plan entries explicitly say `decision: "bucket"`. Leave `ask_user` and `leave_as_is` tasks untouched, and leave low-confidence decisions untouched unless the caller passes `--include-low-confidence`.
+29. The AI should still reason about the work, not just the filing: what the task really is, what should happen next, what user input is missing, and whether the inbox needs a new category or section that does not already exist.
+30. When the user wants to retire old personal sections, prefer `close-out-sections` over ad hoc manual moves. It can preview exact source sections, move all tasks or only completed/incomplete tasks into a destination section, and only deletes the source section after it is actually empty.
+31. Treat some My Tasks columns as potentially undeletable even after they are empty. In particular, `Recently assigned` can usually be drained to zero tasks, but Asana may still refuse to remove the column, so present that outcome as "emptied but not removable" rather than retrying indefinitely.
+32. When the user wants a full morning overview instead of a filing pass, prefer `daily-briefing`. Treat it as a read-only AI-gated workflow: the helper emits a snapshot plus plan template, but the agent should create the plan itself and show the user the rendered result rather than making the user fill in the intermediate JSON.
+33. The AI should decide which tasks are actually actionable today and which briefing buckets matter. Do not let Python heuristics choose the final morning queue for `daily-briefing`.
+34. The desired `daily-briefing` output is a reviewed JSON plan plus a rendered command center: a short overview, a short focus line, highlighted tasks with direct links, and explicit `ask_user` questions only for the tasks where ambiguity materially changes what the user should do today.
+35. When the user wants a weekly or manager-facing summary for another person's assigned work, prefer a search-and-summarize workflow over board-only views: search by assignee inside the target workspace or project, bucket tasks into recently completed, in progress, and blocked/stalled based on completion date, due date, and recent activity, then create a single manager-facing follow-up task or note with direct task links and recommended follow-up messages.
+36. For manager rollups, keep the output operational rather than narrative. The default useful deliverable is one concise summary artifact with clearly labeled sections, direct Asana task links, and draft follow-up prompts for anything that is active, blocked, waiting on someone else, or appears to need manager input.
+37. When the user wants a recurring personal follow-up summary for tasks they are involved in but do not own, prefer an involvement-scan workflow: search for incomplete tasks assigned to others, detect involvement through collaborators, recent mentions, assigned subtasks, or custom-field references, classify each task into `Needs my action` or `FYI / watching`, and create or update one summary task in the user's My Tasks with direct task links and short reasons.
+38. For involvement scans, use deterministic rules first and only use an LLM when the task comments are ambiguous. If an LLM is needed, constrain it to structured output with `needs_my_action`, `confidence`, and `reason` so the final summary stays auditable and stable across runs.
+39. For long automation asks, keep the abbreviated guidance in `references/recipes.md`, but prefer dedicated full-body specs in `references/automations/` so the complete prompt, placeholders, output contract, scheduling notes, and edge cases live in one place. When a recipe has a matching automation spec, load that full spec before executing or editing the automation.
+40. If the task changes this skill repo itself, treat it as a shipped skill update unless the user explicitly says not to release it yet.
+41. Before committing or pushing any skill change, run `python3 scripts/check_release.py`. Do not push until it passes.
+42. If `check_release.py` fails because release metadata is missing, run `python3 scripts/bump_version.py --part auto --title "Short release title"`. Let the helper choose the semantically correct bump from the current diff unless the user explicitly wants an override. Replace the scaffold line in `CHANGELOG.md` with a real user-facing summary, rerun `python3 scripts/check_release.py`, then commit and push.
+43. Never leave the top changelog entry on the placeholder text `Describe the user-visible change here.` If you bumped the version, you own writing the matching release note before you finish.
 
 ## AI Message Format
 
@@ -127,18 +133,20 @@ python3 scripts/asana_api.py task-stories <task_gid>
 python3 scripts/asana_api.py task-comments <task_gid>
 python3 scripts/asana_api.py task-custom-fields <task_gid>
 python3 scripts/asana_api.py inbox-cleanup
-python3 scripts/asana_api.py inbox-cleanup --apply
-python3 scripts/asana_api.py inbox-cleanup --source-section "Recently assigned" --apply
+python3 scripts/asana_api.py inbox-cleanup --snapshot-file /tmp/asana-inbox-snapshot.json --plan-template-file /tmp/asana-inbox-plan.json
 python3 scripts/asana_api.py inbox-cleanup --all-open --max-tasks 50
-python3 scripts/asana_api.py inbox-cleanup --manager-comments
-python3 scripts/asana_api.py inbox-cleanup --comment-research-todos --apply
+python3 scripts/asana_api.py inbox-cleanup --plan-file /tmp/asana-inbox-plan.json
+python3 scripts/asana_api.py inbox-cleanup --plan-file /tmp/asana-inbox-plan.json --apply
+python3 scripts/asana_api.py inbox-cleanup --plan-file /tmp/asana-inbox-plan.json --apply --include-low-confidence
 python3 scripts/asana_api.py daily-briefing
-python3 scripts/asana_api.py daily-briefing --markdown
+python3 scripts/asana_api.py daily-briefing --snapshot-file /tmp/asana-daily-briefing-snapshot.json --plan-template-file /tmp/asana-daily-briefing-plan.json
+python3 scripts/asana_api.py daily-briefing --plan-file /tmp/asana-daily-briefing-plan.json
+python3 scripts/asana_api.py daily-briefing --plan-file /tmp/asana-daily-briefing-plan.json --markdown
 python3 scripts/asana_api.py close-out-sections <project_gid> --section "Old Section" --move-to "Work Completed" --completed-mode completed
 python3 scripts/asana_api.py close-out-sections <project_gid> --section "Old Section" --move-to "Work Completed" --completed-mode completed --apply
 python3 scripts/asana_api.py create-task --name "Follow up" --project <project_gid>
-python3 scripts/asana_api.py create-task --name "Follow up" --project <project_gid> --assignee "Eli Bosley"
-python3 scripts/asana_api.py update-task <task_gid> --completed true --assignee "eli@example.com"
+python3 scripts/asana_api.py create-task --name "Follow up" --project <project_gid> --assignee "Exact User Name"
+python3 scripts/asana_api.py update-task <task_gid> --completed true --assignee "user@example.com"
 python3 scripts/asana_api.py comment-task <task_gid> --text "Status update"
 python3 scripts/asana_api.py create-section <project_gid> --name "Ready"
 python3 scripts/asana_api.py add-task-followers <task_gid> me
@@ -172,4 +180,5 @@ Note: Asana does not expose rule creation via API. Rules must be created in the 
 
 - Core API guide: `references/api-overview.md`
 - Common command cookbook: `references/recipes.md`
+- Full automation specs: `references/automations/`
 - Workflow patterns and rule templates: `references/workflow-patterns.md`
