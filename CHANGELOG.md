@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.0.0] - 2026-03-30 — Expand automation documentation
+
+### Changed
+
+- **Automation guidance is now organized around short recipes plus full long-form specs.** `references/recipes.md` now stays concise, while `references/automations/` holds the complete source-of-truth docs for reusable automation workflows.
+- **The skill now documents multiple reusable workflow patterns in a standardized format.** The docs cover a manager-facing weekly employee summary workflow, a recurring Friday follow-up summary for tasks where the user is involved but not the owner, a full daily briefing command-center workflow, an inbox-cleanup PM workflow, a close-out-sections cleanup workflow, and a project-assigned working-set triage workflow.
+- **The new automation specs are execution-oriented.** They include placeholders, output contracts, scheduling guidance, deterministic classification rules, constrained LLM fallback rules, validation checklists, and the Asana helper commands each workflow is expected to use.
+- **The documentation examples were generalized.** The final examples use reusable placeholders and generic identifiers while preserving the actual automation structure and execution guidance.
+- **Rich-text mention handling is now explicitly documented.** The docs call out that the wrapper supports `html_text` comments but not a dedicated mention flag, and they explain when to fall back to the raw stories endpoint for mentions.
+
 ## [1.0.1.1] - 2026-03-26 — Personal Repo Source Of Truth
 
 ### Changed

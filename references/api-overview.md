@@ -110,6 +110,7 @@ Use batch when several independent reads or writes should happen together and or
 - Task/task-project comments (`stories`) support rich text through `html_text`.
 - Task descriptions/notes support rich text through `html_notes`.
 - Prefer rich text for AI-authored messages so headings, paragraphs, and lists render correctly in Asana.
+- The wrapper supports rich-text comments, but not an explicit mention flag. When you need an `@mention`, first check whether Asana accepts the mention token inside `html_text`; if not, use the raw stories endpoint with the mention format Asana expects.
 - If the message includes structured status details, do not rely on Markdown or literal newline escapes inside plain `text`.
 - Use only Asana-supported rich-text tags in API writes. Safe default tags for status updates are:
   - `<body>`
