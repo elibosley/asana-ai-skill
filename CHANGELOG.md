@@ -1,5 +1,13 @@
 # Changelog
 
+## [4.0.2.0] - 2026-04-07 — Move AI disclosure to message footnotes
+
+### Changed
+
+- **AI-authored Asana comments now render their disclosure as a footer instead of a leading banner.** The helper now places the `AI MESSAGE DISCLAIMER` at the bottom of normalized rich-text messages so the actual status, action, and review content appears first in the comment body.
+- **Legacy AI-authored message formats now normalize into the new footer layout.** Older single-list, inline-blob, and header-first rich-text payloads are rewritten into the same canonical footer-disclaimer shape so comment updates do not keep resurfacing the disclosure at the top.
+- **Regression coverage now locks the new disclosure placement in place.** The rich-text normalization tests now assert both the footer rewrite path and the already-footer-preserving path so future formatting changes do not silently revert the disclosure position.
+
 ## [4.0.1.0] - 2026-03-31 — Add parser-derived CLI reference
 
 ### Changed
