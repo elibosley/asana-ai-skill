@@ -1,9 +1,9 @@
 ---
-name: asana-inbox-cleanup
+name: asana-my-tasks-organizer
 description: Use when the user wants AI-gated My Tasks triage and section filing. Thin entrypoint to the installed asana skill's inbox cleanup workflow spec.
 ---
 
-# Asana Inbox Cleanup
+# Asana My Tasks Organizer
 
 This is a thin workflow entrypoint for the installed `asana` skill.
 

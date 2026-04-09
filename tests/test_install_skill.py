@@ -35,6 +35,18 @@ class InstallSkillCompanionTests(unittest.TestCase):
                 self.assertTrue((dest / "SKILL.md").exists(), name)
                 self.assertEqual(resolved, dest.resolve())
 
+    def test_install_companion_skills_removes_legacy_entrypoints(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            skill_root = Path(tempdir)
+            legacy_dest = skill_root / "asana-inbox-cleanup"
+            legacy_dest.mkdir()
+            (legacy_dest / "SKILL.md").write_text("legacy")
+
+            INSTALL_SKILL.install_companion_skills(skill_root, "copy")
+
+            self.assertFalse(legacy_dest.exists())
+            self.assertTrue((skill_root / "asana-my-tasks-organizer" / "SKILL.md").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

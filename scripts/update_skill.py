@@ -11,6 +11,7 @@ Best-effort updater for the Asana skill.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import shutil
@@ -98,6 +99,16 @@ def version_file(repo_root: Path) -> Path:
 
 def changelog_file(repo_root: Path) -> Path:
     return repo_root / CHANGELOG_FILE_NAME
+
+
+def load_install_skill_module(repo_root: Path):
+    module_path = repo_root / "scripts" / "install_skill.py"
+    spec = importlib.util.spec_from_file_location("install_skill", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load install helper from {module_path}.")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def read_version(repo_root: Path) -> str | None:
@@ -265,6 +276,16 @@ def install_from_repo(repo_root: Path) -> None:
     )
 
 
+def reconcile_default_companion_installs(repo_root: Path) -> None:
+    install_skill = load_install_skill_module(repo_root)
+    repo_root_resolved = repo_root.resolve()
+    for dest in install_skill.DEFAULT_DESTS.values():
+        resolved = install_skill.safe_resolve(dest)
+        if resolved != repo_root_resolved:
+            continue
+        install_skill.install_companion_skills(dest.parent, "symlink")
+
+
 def fast_forward_repo(repo_root: Path, *, quiet: bool) -> tuple[bool, str, str | None, str | None, str]:
     ensure_origin(repo_root)
     if repo_has_uncommitted_changes(repo_root):
@@ -352,6 +373,7 @@ def update_current_install(args: argparse.Namespace) -> int:
             repo_root,
             quiet=args.quiet,
         )
+        reconcile_default_companion_installs(repo_root)
 
     record_check(
         state,

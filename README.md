@@ -65,7 +65,7 @@ Once installed, just talk to your AI in plain English. Here are some things you 
 | "Give me a morning briefing of my tasks" | See everything due today, overdue, and coming up |
 | "Show me all tasks assigned to me in [project name]" | Pull your tasks with context, comments, and attachments |
 | "Import tasks from a spreadsheet into Asana" | Bulk-create tasks from a CSV with assignees, due dates, and sections |
-| "Clean up my Asana inbox" | Classify tasks, suggest next actions, flag what needs attention |
+| "Organize my My Tasks list" | Classify tasks, suggest next actions, flag what needs attention |
 | "Tag my My Tasks list as Quick Win / Deep Work / Waiting" | Review each task and normalize exactly one sorter tag while preserving project tags |
 | "Close out stale sections in my tasks" | Safely archive old sections after moving remaining tasks |
 | "Find tasks about [topic] in [project]" | Search across projects by keyword |
@@ -74,7 +74,7 @@ Once installed, just talk to your AI in plain English. Here are some things you 
 If your agent exposes skill slash commands, the install also adds workflow-specific entrypoints:
 
 - `/asana-daily-briefing`
-- `/asana-inbox-cleanup`
+- `/asana-my-tasks-organizer`
 - `/asana-close-out-sections`
 - `/asana-project-working-set`
 - `/asana-weekly-manager-summary`
@@ -84,12 +84,12 @@ If your agent exposes skill slash commands, the install also adds workflow-speci
 
 - **Daily briefing** — a read-only morning command center for My Tasks with direct links and priority buckets
 - **Project task pulls** — fetch assigned tasks enriched with section order, position, recent comments, and attachments
-- **Inbox cleanup** — classify tasks, suggest next actions, flag execution-ready work, and optionally draft AI comments
+- **My Tasks organizer** — classify tasks, suggest next actions, flag execution-ready work, and optionally draft AI comments
 - **Sorting tag normalization** — keep exactly one personal sorter tag such as `Quick Win`, `Deep Work`, or `Needs Clarity` on a task without touching unrelated project tags
 - **Section management** — retire stale personal sections safely by previewing, relocating tasks, and deleting only when empty
 - **Bulk import** — create tasks from spreadsheets with assignees, due dates, priorities, and sections
 - **Direct links** — every task the AI creates or modifies includes a clickable Asana URL
-- **Workflow entrypoints** — install companion skills such as `/asana-daily-briefing` and `/asana-inbox-cleanup` that jump straight into the higher-level automation specs
+- **Workflow entrypoints** — install companion skills such as `/asana-daily-briefing` and `/asana-my-tasks-organizer` that jump straight into the higher-level automation specs
 
 ## CLI Reference
 
@@ -180,7 +180,7 @@ python3 ~/Code/asana-ai-skill/scripts/asana_api.py whoami
 ### Repo structure
 
 - `SKILL.md` plus `agents/openai.yaml` — the skill definitions
-- `entrypoints/` — companion workflow skills like `asana-daily-briefing` and `asana-inbox-cleanup`
+- `entrypoints/` — companion workflow skills like `asana-daily-briefing` and `asana-my-tasks-organizer`
 - `scripts/asana_api.py` — API client (standard library only)
 - `scripts/generate_cli_docs.py` — emits parser-derived CLI docs and JSON spec
 - `scripts/bootstrap_skill.py` — first-time setup

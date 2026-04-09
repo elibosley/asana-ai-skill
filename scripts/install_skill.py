@@ -25,12 +25,15 @@ DEFAULT_DESTS = {
 ENTRYPOINT_ROOT = REPO_ROOT / "entrypoints"
 COMPANION_SKILLS = {
     "asana-daily-briefing": ENTRYPOINT_ROOT / "asana-daily-briefing",
-    "asana-inbox-cleanup": ENTRYPOINT_ROOT / "asana-inbox-cleanup",
+    "asana-my-tasks-organizer": ENTRYPOINT_ROOT / "asana-my-tasks-organizer",
     "asana-close-out-sections": ENTRYPOINT_ROOT / "asana-close-out-sections",
     "asana-project-working-set": ENTRYPOINT_ROOT / "asana-project-working-set",
     "asana-weekly-manager-summary": ENTRYPOINT_ROOT / "asana-weekly-manager-summary",
     "asana-friday-follow-up-summary": ENTRYPOINT_ROOT / "asana-friday-follow-up-summary",
 }
+LEGACY_COMPANION_SKILLS = (
+    "asana-inbox-cleanup",
+)
 PRESERVED_FILES = [
     (".secrets/asana_pat", False),
     ("asana-context.json", True),
@@ -137,6 +140,10 @@ def install_companion(dest: Path, source: Path, mode: str) -> None:
 
 def install_companion_skills(skill_root: Path, mode: str) -> list[tuple[str, Path, Path]]:
     installed: list[tuple[str, Path, Path]] = []
+    for legacy_name in LEGACY_COMPANION_SKILLS:
+        legacy_dest = skill_root / legacy_name
+        if legacy_dest.exists() or legacy_dest.is_symlink():
+            remove_existing(legacy_dest)
     for name, source in COMPANION_SKILLS.items():
         if not source.exists():
             raise SystemExit(f"Companion skill source is missing: {source}")

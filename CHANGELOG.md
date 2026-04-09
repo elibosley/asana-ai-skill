@@ -1,5 +1,13 @@
 # Changelog
 
+## [4.1.0.0] - 2026-04-10 — Rename My Tasks organizer entrypoint
+
+### Changed
+
+- **The My Tasks triage companion skill is now named `asana-my-tasks-organizer`.** New installs now expose the renamed workflow entrypoint instead of `asana-inbox-cleanup`, and the README, base skill prompt, and OpenAI metadata now steer agents toward the new name.
+- **Existing default installs now migrate to the renamed entrypoint during refresh.** The installer removes the old companion symlink, provisions `asana-my-tasks-organizer` for both Codex and Claude installs, and the updater reconciles repo-backed default installs so users do not end up with a dead `asana-inbox-cleanup` link after pulling this release.
+- **Regression coverage now locks the rename and cleanup behavior in place.** Installer tests now verify that legacy `asana-inbox-cleanup` companion entries are removed when companion skills are reinstalled, which protects the shipped migration path from regressing.
+
 ## [4.0.2.0] - 2026-04-07 — Move AI disclosure to message footnotes
 
 ### Changed
