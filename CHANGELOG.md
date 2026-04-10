@@ -1,5 +1,13 @@
 # Changelog
 
+## [4.2.0.0] - 2026-04-10 — Respect active project repo directory
+
+### Changed
+
+- **Bootstrap now defaults the repo checkout to the active Claude Code or Codex project directory when it can infer one.** The setup flow adds a new `--repo-dir` option, reuses the current checkout when bootstrap is already running from the desired repo, and otherwise provisions a durable checkout under the active project instead of assuming `~/Code`.
+- **Install setup now has a cross-platform-safe fallback plus an explicit directory choice.** When there is no active project directory to inherit, bootstrap falls back to `~/.agent-skills/sources/asana-ai-skill`, and interactive runs can prompt the user to accept or override the proposed repo location before the install proceeds.
+- **Setup docs and regression coverage now lock the new path-selection behavior in place.** The README no longer hardcodes `~/Code/asana-ai-skill`, and new bootstrap tests cover active-project detection, the safe fallback path, and first-run checkout creation so this installer flow does not regress.
+
 ## [4.1.0.0] - 2026-04-10 — Rename My Tasks organizer entrypoint
 
 ### Changed

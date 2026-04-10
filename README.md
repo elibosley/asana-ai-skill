@@ -26,12 +26,14 @@ Set up the private `asana` skill for me from `elibosley/asana-ai-skill` with as 
 
 Requirements:
 - Ask me first which agent I want this installed for: `Codex`, `Claude Code`, or `both`
-- If `~/Code/asana-ai-skill` does not exist, clone the repo there. If it does exist, update it safely.
+- Default the repo checkout to my active Claude Code or Codex project directory. If you cannot infer that confidently, ask me where I want it and suggest `~/.agent-skills/sources/asana-ai-skill` as a safe fallback on macOS, Linux, Windows, or WSL.
+- After choosing the repo location, store it in a shell variable named `REPO_DIR`.
+- If `REPO_DIR` does not exist, clone the repo there. If it does exist, update it safely.
 - Confirm `python3` is available and do not add any pip dependencies unless they are actually needed
 - After I answer, run the matching bootstrap command:
-  - Codex: `python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent codex`
-  - Claude Code: `python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent claude`
-  - Both: `python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent both`
+  - Codex: `python3 "$REPO_DIR/scripts/bootstrap_skill.py" --agent codex --repo-dir "$REPO_DIR"`
+  - Claude Code: `python3 "$REPO_DIR/scripts/bootstrap_skill.py" --agent claude --repo-dir "$REPO_DIR"`
+  - Both: `python3 "$REPO_DIR/scripts/bootstrap_skill.py" --agent both --repo-dir "$REPO_DIR"`
 - Keep secrets out of git
 - Install only the agent target I chose
 - Enable the built-in auto-update path
@@ -41,8 +43,8 @@ Requirements:
 - Explain that the token is shown once and should be saved immediately
 - Save the token to `~/.agent-skills/asana/asana_pat` with safe file permissions
 - After the token is in place, rerun the bootstrap script so it can auto-build `asana-context.json`
-- Verify the install by running `python3 ~/Code/asana-ai-skill/scripts/asana_api.py whoami`
-- Verify the updater by running `python3 ~/Code/asana-ai-skill/scripts/update_skill.py --force`
+- Verify the install by running `python3 "$REPO_DIR/scripts/asana_api.py" whoami`
+- Verify the updater by running `python3 "$REPO_DIR/scripts/update_skill.py" --force`
 - Never print the token in output
 ```
 
@@ -113,7 +115,7 @@ The skill auto-updates in the background. To force an update manually, tell your
 Or run directly:
 
 ```bash
-python3 ~/Code/asana-ai-skill/scripts/update_skill.py --force
+python3 <repo-dir>/scripts/update_skill.py --force
 ```
 
 ## Requirements
@@ -133,21 +135,23 @@ No `pip install` step is required — the skill uses only Python's standard libr
 ### Option A: Clone and bootstrap
 
 ```bash
-git clone https://github.com/elibosley/asana-ai-skill.git ~/Code/asana-ai-skill
-python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent both
+git clone https://github.com/elibosley/asana-ai-skill.git <repo-dir>
+python3 <repo-dir>/scripts/bootstrap_skill.py --agent both --repo-dir <repo-dir>
 ```
 
-The bootstrap script will prompt you for your Asana token if one is not already saved.
+Use your active Claude Code or Codex project directory for `<repo-dir>` when that is where you want the repo to live. If you want a neutral cross-platform location instead, use `~/.agent-skills/sources/asana-ai-skill`.
+
+The bootstrap script will prompt you for your Asana token if one is not already saved. When you run bootstrap from a temporary clone or unzip location, `--repo-dir` tells it where the durable checkout should live.
 
 ### Option B: Download ZIP and bootstrap
 
 1. Click the green **Code** button at the top of this page, then **Download ZIP**.
 2. Unzip the download.
-3. Move the unzipped folder to `~/Code/asana-ai-skill` (rename it if the folder is called `asana-codex-skill-main` or similar).
+3. Move the unzipped folder to your chosen `<repo-dir>` (for example your active Claude Code or Codex project directory, or `~/.agent-skills/sources/asana-ai-skill`).
 4. Open Terminal and run:
 
 ```bash
-python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent both
+python3 <repo-dir>/scripts/bootstrap_skill.py --agent both --repo-dir <repo-dir>
 ```
 
 ### Saving the token manually
@@ -163,13 +167,13 @@ Paste your token, then press **Ctrl+X**, then **Y**, then **Enter** to save.
 
 ### Single-agent install
 
-- Codex only: `python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent codex`
-- Claude Code only: `python3 ~/Code/asana-ai-skill/scripts/bootstrap_skill.py --agent claude`
+- Codex only: `python3 <repo-dir>/scripts/bootstrap_skill.py --agent codex --repo-dir <repo-dir>`
+- Claude Code only: `python3 <repo-dir>/scripts/bootstrap_skill.py --agent claude --repo-dir <repo-dir>`
 
 ### Verify
 
 ```bash
-python3 ~/Code/asana-ai-skill/scripts/asana_api.py whoami
+python3 <repo-dir>/scripts/asana_api.py whoami
 ```
 
 </details>
