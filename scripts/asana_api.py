@@ -598,6 +598,14 @@ def nullable_arg(value: str | None) -> str | None:
     return value
 
 
+def task_position_args(args: argparse.Namespace) -> tuple[str | None, str | None]:
+    insert_before = getattr(args, "insert_before", None)
+    insert_after = getattr(args, "insert_after", None)
+    if insert_before is not None and insert_after is not None:
+        raise SystemExit("Pass only one of --insert-before or --insert-after.")
+    return insert_before, insert_after
+
+
 def load_inline_or_file_value(
     inline_value: str | None,
     file_path: str | None,
@@ -3651,6 +3659,7 @@ def command_task_bundle(args: argparse.Namespace) -> Any:
 
 
 def command_add_task_project(args: argparse.Namespace) -> Any:
+    task_position_args(args)
     payload: dict[str, Any] = {"project": args.project_gid}
     if args.section:
         payload["section"] = args.section
@@ -4406,7 +4415,7 @@ def build_task_payload(
     workspace = workspace_default(args, context, cache)
     parent = getattr(args, "parent", None)
 
-    if project:
+    if is_create and project:
         payload["projects"] = [project]
     elif is_create and workspace:
         payload["workspace"] = workspace
@@ -4418,6 +4427,91 @@ def build_task_payload(
         payload["custom_fields"] = parse_custom_fields(args.custom_field)
 
     return payload
+
+
+def task_placement_requested(args: argparse.Namespace, *, project_only: bool) -> bool:
+    insert_before, insert_after = task_position_args(args)
+    return bool(
+        getattr(args, "section", None)
+        or insert_before is not None
+        or insert_after is not None
+        or (project_only and getattr(args, "project", None))
+    )
+
+
+def validate_position_anchor(
+    token: str,
+    *,
+    project_gid: str | None,
+    section_gid: str | None,
+    anchor_gid: str | None,
+) -> None:
+    if anchor_gid is None:
+        return
+
+    sentinel_gids = {gid for gid in (project_gid, section_gid) if gid}
+    if anchor_gid in sentinel_gids:
+        return
+
+    if section_gid:
+        path = f"/sections/{section_gid}/tasks"
+        scope_label = f"section {section_gid}"
+    elif project_gid:
+        path = f"/projects/{project_gid}/tasks"
+        scope_label = f"project {project_gid}"
+    else:
+        raise SystemExit("Pass --project or --section when using --insert-before or --insert-after.")
+
+    response = api_request(
+        token=token,
+        method="GET",
+        path_or_url=path,
+        query={"limit": "100", "opt_fields": "gid"},
+    )
+    response = maybe_paginate(token, response, True, 0)
+    tasks = response.get("data", [])
+    if not any(isinstance(task, dict) and task.get("gid") == anchor_gid for task in tasks):
+        raise SystemExit(f"Position anchor task {anchor_gid} is not in {scope_label}.")
+
+
+def apply_task_placement(
+    token: str,
+    args: argparse.Namespace,
+    *,
+    task_gid: str,
+    project_only: bool,
+) -> Any | None:
+    insert_before_arg, insert_after_arg = task_position_args(args)
+    project_gid = getattr(args, "project", None)
+    section_gid = getattr(args, "section", None)
+    if not task_placement_requested(args, project_only=project_only):
+        return None
+
+    insert_before = nullable_arg(insert_before_arg) if insert_before_arg is not None else None
+    insert_after = nullable_arg(insert_after_arg) if insert_after_arg is not None else None
+    anchor_gid = insert_before if insert_before_arg is not None else insert_after
+    validate_position_anchor(token, project_gid=project_gid, section_gid=section_gid, anchor_gid=anchor_gid)
+
+    if section_gid:
+        path = f"/sections/{section_gid}/addTask"
+        payload: dict[str, Any] = {"task": task_gid}
+    elif project_gid:
+        path = f"/tasks/{task_gid}/addProject"
+        payload = {"project": project_gid}
+    else:
+        raise SystemExit("Pass --project or --section when using task placement options.")
+
+    if insert_before_arg is not None:
+        payload["insert_before"] = insert_before
+    if insert_after_arg is not None:
+        payload["insert_after"] = insert_after
+
+    return api_request(
+        token=token,
+        method="POST",
+        path_or_url=path,
+        json_body={"data": payload},
+    )
 
 
 def parse_custom_fields(items: list[str]) -> dict[str, Any]:
@@ -4434,6 +4528,7 @@ def command_create_task(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
     cache = load_cache()
+    task_position_args(args)
     payload = build_task_payload(args, context, cache, is_create=True)
     response = api_request(
         token=token,
@@ -4446,7 +4541,13 @@ def command_create_task(args: argparse.Namespace) -> Any:
     if isinstance(task, dict) and isinstance(task.get("assignee"), dict):
         cache_record(cache, "users", user_cache_record(task["assignee"]))
         save_cache(cache)
+    if isinstance(task, dict) and task.get("gid"):
+        placement_response = apply_task_placement(token, args, task_gid=str(task["gid"]), project_only=False)
+    else:
+        placement_response = None
     enriched = response_with_review_links(response)
+    if placement_response is not None and isinstance(enriched, dict):
+        enriched["placement"] = placement_response
     print_json(enriched, args.compact)
     return enriched
 
@@ -4455,19 +4556,42 @@ def command_update_task(args: argparse.Namespace) -> Any:
     token = get_token(args)
     context = load_context()
     cache = load_cache()
+    task_position_args(args)
     payload = build_task_payload(args, context, cache, is_create=False)
-    response = api_request(
-        token=token,
-        method="PUT",
-        path_or_url=f"/tasks/{args.task_gid}",
-        query={"opt_fields": task_write_opt_fields()},
-        json_body={"data": payload},
-    )
+    placement_requested = task_placement_requested(args, project_only=True)
+    if payload:
+        response = api_request(
+            token=token,
+            method="PUT",
+            path_or_url=f"/tasks/{args.task_gid}",
+            query={"opt_fields": task_write_opt_fields()},
+            json_body={"data": payload},
+        )
+    elif placement_requested:
+        response = api_request(
+            token=token,
+            method="GET",
+            path_or_url=f"/tasks/{args.task_gid}",
+            query={"opt_fields": task_write_opt_fields()},
+        )
+    else:
+        response = api_request(
+            token=token,
+            method="PUT",
+            path_or_url=f"/tasks/{args.task_gid}",
+            query={"opt_fields": task_write_opt_fields()},
+            json_body={"data": payload},
+        )
     task = response.get("data", {})
     if isinstance(task, dict) and isinstance(task.get("assignee"), dict):
         cache_record(cache, "users", user_cache_record(task["assignee"]))
         save_cache(cache)
+    placement_response = (
+        apply_task_placement(token, args, task_gid=args.task_gid, project_only=True) if placement_requested else None
+    )
     enriched = response_with_review_links(response)
+    if placement_response is not None and isinstance(enriched, dict):
+        enriched["placement"] = placement_response
     print_json(enriched, args.compact)
     return enriched
 
@@ -6205,6 +6329,7 @@ def build_parser() -> argparse.ArgumentParser:
     create_task_parser.add_argument("--name", required=True)
     create_task_parser.add_argument("--workspace", help="Workspace GID override")
     create_task_parser.add_argument("--project", help="Project GID")
+    create_task_parser.add_argument("--section", help="Section GID for placement")
     create_task_parser.add_argument("--parent", help="Parent task GID")
     create_task_parser.add_argument("--assignee", help="Assignee gid, me, exact cached user name, or exact cached email")
     create_task_parser.add_argument("--notes")
@@ -6212,12 +6337,16 @@ def build_parser() -> argparse.ArgumentParser:
     create_task_parser.add_argument("--due-on")
     create_task_parser.add_argument("--due-at")
     create_task_parser.add_argument("--custom-field", action="append", default=[], help="Custom field as gid=value")
+    create_task_parser.add_argument("--insert-before", help="Anchor task GID, section/project sentinel GID, or literal null")
+    create_task_parser.add_argument("--insert-after", help="Anchor task GID, section/project sentinel GID, or literal null")
     add_common_output_flags(create_task_parser)
     create_task_parser.set_defaults(func=command_create_task)
 
     update_task_parser = subparsers.add_parser("update-task", help="Update a task")
     update_task_parser.add_argument("task_gid")
     update_task_parser.add_argument("--name")
+    update_task_parser.add_argument("--project", help="Project GID for placement")
+    update_task_parser.add_argument("--section", help="Section GID for placement")
     update_task_parser.add_argument("--assignee", help="Assignee gid, me, exact cached user name, or exact cached email")
     update_task_parser.add_argument("--notes")
     update_task_parser.add_argument("--html-notes")
@@ -6225,6 +6354,8 @@ def build_parser() -> argparse.ArgumentParser:
     update_task_parser.add_argument("--due-at")
     update_task_parser.add_argument("--completed", type=parse_bool)
     update_task_parser.add_argument("--custom-field", action="append", default=[], help="Custom field as gid=value")
+    update_task_parser.add_argument("--insert-before", help="Anchor task GID, section/project sentinel GID, or literal null")
+    update_task_parser.add_argument("--insert-after", help="Anchor task GID, section/project sentinel GID, or literal null")
     add_common_output_flags(update_task_parser)
     update_task_parser.set_defaults(func=command_update_task)
 

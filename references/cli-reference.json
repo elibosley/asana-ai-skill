@@ -1587,6 +1587,20 @@
         {
           "choices": null,
           "default": null,
+          "dest": "section",
+          "help": "Section GID for placement",
+          "kind": "option",
+          "metavar": "SECTION",
+          "nargs": null,
+          "option_strings": [
+            "--section"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
           "dest": "parent",
           "help": "Parent task GID",
           "kind": "option",
@@ -1681,11 +1695,39 @@
           ],
           "required": false,
           "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "insert_before",
+          "help": "Anchor task GID, section/project sentinel GID, or literal null",
+          "kind": "option",
+          "metavar": "INSERT_BEFORE",
+          "nargs": null,
+          "option_strings": [
+            "--insert-before"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "insert_after",
+          "help": "Anchor task GID, section/project sentinel GID, or literal null",
+          "kind": "option",
+          "metavar": "INSERT_AFTER",
+          "nargs": null,
+          "option_strings": [
+            "--insert-after"
+          ],
+          "required": false,
+          "type": null
         }
       ],
       "positionals": [],
       "summary": "Create a task",
-      "usage": "usage: asana_api.py create-task [-h] --name NAME [--workspace WORKSPACE] [--project PROJECT] [--parent PARENT] [--assignee ASSIGNEE] [--notes NOTES] [--html-notes HTML_NOTES] [--due-on DUE_ON] [--due-at DUE_AT] [--custom-field CUSTOM_FIELD] [--compact]"
+      "usage": "usage: asana_api.py create-task [-h] --name NAME [--workspace WORKSPACE] [--project PROJECT] [--section SECTION] [--parent PARENT] [--assignee ASSIGNEE] [--notes NOTES] [--html-notes HTML_NOTES] [--due-on DUE_ON] [--due-at DUE_AT] [--custom-field CUSTOM_FIELD] [--insert-before INSERT_BEFORE] [--insert-after INSERT_AFTER] [--compact]"
     },
     {
       "includes_shared_options": true,
@@ -1701,6 +1743,34 @@
           "nargs": null,
           "option_strings": [
             "--name"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "project",
+          "help": "Project GID for placement",
+          "kind": "option",
+          "metavar": "PROJECT",
+          "nargs": null,
+          "option_strings": [
+            "--project"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "section",
+          "help": "Section GID for placement",
+          "kind": "option",
+          "metavar": "SECTION",
+          "nargs": null,
+          "option_strings": [
+            "--section"
           ],
           "required": false,
           "type": null
@@ -1802,6 +1872,34 @@
           ],
           "required": false,
           "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "insert_before",
+          "help": "Anchor task GID, section/project sentinel GID, or literal null",
+          "kind": "option",
+          "metavar": "INSERT_BEFORE",
+          "nargs": null,
+          "option_strings": [
+            "--insert-before"
+          ],
+          "required": false,
+          "type": null
+        },
+        {
+          "choices": null,
+          "default": null,
+          "dest": "insert_after",
+          "help": "Anchor task GID, section/project sentinel GID, or literal null",
+          "kind": "option",
+          "metavar": "INSERT_AFTER",
+          "nargs": null,
+          "option_strings": [
+            "--insert-after"
+          ],
+          "required": false,
+          "type": null
         }
       ],
       "positionals": [
@@ -1819,7 +1917,7 @@
         }
       ],
       "summary": "Update a task",
-      "usage": "usage: asana_api.py update-task [-h] [--name NAME] [--assignee ASSIGNEE] [--notes NOTES] [--html-notes HTML_NOTES] [--due-on DUE_ON] [--due-at DUE_AT] [--completed COMPLETED] [--custom-field CUSTOM_FIELD] [--compact] task_gid"
+      "usage": "usage: asana_api.py update-task [-h] [--name NAME] [--project PROJECT] [--section SECTION] [--assignee ASSIGNEE] [--notes NOTES] [--html-notes HTML_NOTES] [--due-on DUE_ON] [--due-at DUE_AT] [--completed COMPLETED] [--custom-field CUSTOM_FIELD] [--insert-before INSERT_BEFORE] [--insert-after INSERT_AFTER] [--compact] task_gid"
     },
     {
       "includes_shared_options": true,

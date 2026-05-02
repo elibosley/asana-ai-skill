@@ -496,7 +496,7 @@ No command-specific options.
 ## `create-task`
 
 - Summary: Create a task
-- Usage: `usage: asana_api.py create-task [-h] --name NAME [--workspace WORKSPACE] [--project PROJECT] [--parent PARENT] [--assignee ASSIGNEE] [--notes NOTES] [--html-notes HTML_NOTES] [--due-on DUE_ON] [--due-at DUE_AT] [--custom-field CUSTOM_FIELD] [--compact]`
+- Usage: `usage: asana_api.py create-task [-h] --name NAME [--workspace WORKSPACE] [--project PROJECT] [--section SECTION] [--parent PARENT] [--assignee ASSIGNEE] [--notes NOTES] [--html-notes HTML_NOTES] [--due-on DUE_ON] [--due-at DUE_AT] [--custom-field CUSTOM_FIELD] [--insert-before INSERT_BEFORE] [--insert-after INSERT_AFTER] [--compact]`
 - Shared options: see [Shared Options](#shared-options)
 
 ### Command Options
@@ -506,6 +506,7 @@ No command-specific options.
 | `--name` `NAME` | option | yes |  |  |
 | `--workspace` `WORKSPACE` | option | no | Workspace GID override |  |
 | `--project` `PROJECT` | option | no | Project GID |  |
+| `--section` `SECTION` | option | no | Section GID for placement |  |
 | `--parent` `PARENT` | option | no | Parent task GID |  |
 | `--assignee` `ASSIGNEE` | option | no | Assignee gid, me, exact cached user name, or exact cached email |  |
 | `--notes` `NOTES` | option | no |  |  |
@@ -513,11 +514,13 @@ No command-specific options.
 | `--due-on` `DUE_ON` | option | no |  |  |
 | `--due-at` `DUE_AT` | option | no |  |  |
 | `--custom-field` `CUSTOM_FIELD` | option | no | Custom field as gid=value |  |
+| `--insert-before` `INSERT_BEFORE` | option | no | Anchor task GID, section/project sentinel GID, or literal null |  |
+| `--insert-after` `INSERT_AFTER` | option | no | Anchor task GID, section/project sentinel GID, or literal null |  |
 
 ## `update-task`
 
 - Summary: Update a task
-- Usage: `usage: asana_api.py update-task [-h] [--name NAME] [--assignee ASSIGNEE] [--notes NOTES] [--html-notes HTML_NOTES] [--due-on DUE_ON] [--due-at DUE_AT] [--completed COMPLETED] [--custom-field CUSTOM_FIELD] [--compact] task_gid`
+- Usage: `usage: asana_api.py update-task [-h] [--name NAME] [--project PROJECT] [--section SECTION] [--assignee ASSIGNEE] [--notes NOTES] [--html-notes HTML_NOTES] [--due-on DUE_ON] [--due-at DUE_AT] [--completed COMPLETED] [--custom-field CUSTOM_FIELD] [--insert-before INSERT_BEFORE] [--insert-after INSERT_AFTER] [--compact] task_gid`
 - Shared options: see [Shared Options](#shared-options)
 
 ### Positional Arguments
@@ -531,6 +534,8 @@ No command-specific options.
 | Option | Kind | Required | Description | Choices |
 | --- | --- | --- | --- | --- |
 | `--name` `NAME` | option | no |  |  |
+| `--project` `PROJECT` | option | no | Project GID for placement |  |
+| `--section` `SECTION` | option | no | Section GID for placement |  |
 | `--assignee` `ASSIGNEE` | option | no | Assignee gid, me, exact cached user name, or exact cached email |  |
 | `--notes` `NOTES` | option | no |  |  |
 | `--html-notes` `HTML_NOTES` | option | no |  |  |
@@ -538,6 +543,8 @@ No command-specific options.
 | `--due-at` `DUE_AT` | option | no |  |  |
 | `--completed` `COMPLETED` | option | no |  |  |
 | `--custom-field` `CUSTOM_FIELD` | option | no | Custom field as gid=value |  |
+| `--insert-before` `INSERT_BEFORE` | option | no | Anchor task GID, section/project sentinel GID, or literal null |  |
+| `--insert-after` `INSERT_AFTER` | option | no | Anchor task GID, section/project sentinel GID, or literal null |  |
 
 ## `comment-task`
 

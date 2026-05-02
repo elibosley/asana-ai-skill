@@ -1,5 +1,13 @@
 # Changelog
 
+## [4.3.0.0] - 2026-05-02 — Add task placement controls
+
+### Changed
+
+- **Task creation can now place new tasks at a specific board position.** `create-task` accepts `--section`, `--insert-before`, and `--insert-after`, validates that the anchor task belongs to the target section or project, and then uses Asana's section placement endpoint so new tasks no longer have to land at the bottom of a column.
+- **Existing tasks can now be repositioned through the update path.** `update-task` accepts `--project`, `--section`, `--insert-before`, and `--insert-after`, allowing callers to move or reorder a task without changing any task fields.
+- **The task placement behavior is covered and documented.** The parser-derived CLI reference now exposes the new flags, and regression tests cover section placement, placement-only updates, mutually exclusive insert hints, and project-only creation compatibility.
+
 ## [4.2.0.0] - 2026-04-10 — Respect active project repo directory
 
 ### Changed
